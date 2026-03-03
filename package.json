@@ -1,0 +1,31 @@
+{
+  "name": "timetable-generator-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "jspdf": "^4.2.0",
+    "jspdf-autotable": "^5.0.7",
+    "next": "16.0.8",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@trumpet/eslint-config-next": "^1.9.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9.39.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "typescript-eslint": "^8.49.0"
+  }
+}
