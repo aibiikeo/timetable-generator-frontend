@@ -1,30 +1,36 @@
 'use client';
 
-import { useState } from 'react';
-import {generateSplittingOptions} from "@/lib/splitting";
+import { generateSplittingOptions } from "@/lib/splitting";
+
+type SplittingMode = 'auto' | 'manual';
 
 interface SplittingOptionsProps {
     totalHours: number;
-    value: string;               // текущее выбранное значение (например, "4+4" или "manual")
-    onChange: (value: string) => void;
-    options?: string[];           // можно передать готовые опции, если они уже сгенерированы
+    mode: SplittingMode;
+    selectedValue: string;
+    manualValue: string;
+    onModeChange: (mode: SplittingMode) => void;
+    onSelectSuggested: (value: string) => void;
+    onManualChange: (value: string) => void;
+    options?: string[];
 }
 
-export default function SplittingOptions({ totalHours, value, onChange, options }: SplittingOptionsProps) {
-    const [manualInput, setManualInput] = useState('');
+export default function SplittingOptions({
+                                             totalHours,
+                                             mode,
+                                             selectedValue,
+                                             manualValue,
+                                             onModeChange,
+                                             onSelectSuggested,
+                                             onManualChange,
+                                             options,
+                                         }: SplittingOptionsProps) {
     const generatedOptions = options || generateSplittingOptions(totalHours);
-    const [isManual, setIsManual] = useState(value === 'manual');
-
-    const handleManualChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = e.target.value;
-        setManualInput(val);
-        onChange('manual'); // сохраняем признак ручного режима, но само значение будем передавать отдельно
-    };
 
     return (
         <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">
-                Разбиение часов
+                Hour splitting
             </label>
 
             {generatedOptions.map(opt => (
@@ -33,10 +39,10 @@ export default function SplittingOptions({ totalHours, value, onChange, options 
                         type="radio"
                         name="splitting"
                         value={opt}
-                        checked={!isManual && value === opt}
+                        checked={mode === 'auto' && selectedValue === opt}
                         onChange={() => {
-                            setIsManual(false);
-                            onChange(opt);
+                            onModeChange('auto');
+                            onSelectSuggested(opt);
                         }}
                         className="h-4 w-4 text-blue-600"
                     />
@@ -48,29 +54,29 @@ export default function SplittingOptions({ totalHours, value, onChange, options 
                 <input
                     type="radio"
                     name="splitting"
-                    value="manual"
-                    checked={isManual}
+                    value="manual-mode"
+                    checked={mode === 'manual'}
                     onChange={() => {
-                        setIsManual(true);
-                        onChange('manual');
+                        onModeChange('manual');
                     }}
                     className="h-4 w-4 text-blue-600"
                 />
-                <span>Ввести вручную:</span>
+                <span>Enter manually:</span>
             </label>
 
-            {isManual && (
+            {mode === 'manual' && (
                 <input
                     type="text"
-                    value={manualInput}
-                    onChange={handleManualChange}
-                    placeholder="например, 4+4 или 2+2+2+2"
+                    value={manualValue}
+                    onChange={(e) => onManualChange(e.target.value)}
+                    placeholder="e.g. 4+1 or 2+2+1"
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
             )}
 
             <p className="text-xs text-gray-500">
-                Варианты генерируются из чисел 2, 3, 4. Ручной ввод должен соответствовать формату "2+3+4".
+                Automatic options are generated using blocks of 2, 3, and 4 hours.
+                The value 1 can only be used in manual input.
             </p>
         </div>
     );

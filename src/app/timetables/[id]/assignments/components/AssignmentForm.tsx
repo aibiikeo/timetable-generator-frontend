@@ -1,7 +1,16 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { SubjectResponse, TeacherResponse, StudyGroupResponse, RoomResponse, Shift, RoomType, DayOfWeek, TimeSlot } from '@/lib/types';
+import {
+    SubjectResponse,
+    TeacherResponse,
+    StudyGroupResponse,
+    RoomResponse,
+    Shift,
+    RoomType,
+    DayOfWeek,
+    TimeSlot
+} from '@/lib/types';
 import { generateSplittingOptions } from '@/lib/splitting';
 import SplittingOptions from './SplittingOptions';
 import ExceptionsPicker from './ExceptionsPicker';
@@ -19,6 +28,8 @@ interface AssignmentFormData {
     excludedTimeSlots: { day: DayOfWeek; startTime: string; endTime: string }[];
     preferredDays?: DayOfWeek[];
 }
+
+type SplittingMode = 'auto' | 'manual';
 
 interface Props {
     subjects: SubjectResponse[];
@@ -58,22 +69,61 @@ export default function AssignmentForm({
     );
 
     const [splittingOptions, setSplittingOptions] = useState<string[]>([]);
+    const [splittingMode, setSplittingMode] = useState<SplittingMode>('auto');
+    const [manualSplittingInput, setManualSplittingInput] = useState('');
 
     useEffect(() => {
         if (formData.hoursPerWeek > 0) {
             const options = generateSplittingOptions(formData.hoursPerWeek);
             setSplittingOptions(options);
-            if (formData.hoursSplitting && formData.hoursSplitting !== 'manual' && !options.includes(formData.hoursSplitting)) {
+
+            if (
+                splittingMode === 'auto' &&
+                formData.hoursSplitting &&
+                !options.includes(formData.hoursSplitting)
+            ) {
                 setFormData(prev => ({ ...prev, hoursSplitting: '' }));
             }
         } else {
             setSplittingOptions([]);
+            setFormData(prev => ({ ...prev, hoursSplitting: '' }));
+            setManualSplittingInput('');
         }
-    }, [formData.hoursPerWeek]);
+    }, [formData.hoursPerWeek, splittingMode]);
+
+    useEffect(() => {
+        // Если есть initialData, определяем режим по значению.
+        if (!initialData) return;
+
+        const current = initialData.hoursSplitting?.trim() ?? '';
+
+        if (!current) {
+            setSplittingMode('auto');
+            setManualSplittingInput('');
+            return;
+        }
+
+        if (generateSplittingOptions(initialData.hoursPerWeek).includes(current)) {
+            setSplittingMode('auto');
+            setManualSplittingInput('');
+        } else {
+            setSplittingMode('manual');
+            setManualSplittingInput(current);
+        }
+    }, [initialData]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(formData);
+
+        const normalizedHoursSplitting =
+            splittingMode === 'manual'
+                ? manualSplittingInput.trim()
+                : formData.hoursSplitting.trim();
+
+        onSave({
+            ...formData,
+            hoursSplitting: normalizedHoursSplitting,
+        });
     };
 
     const handleGroupToggle = (groupId: number) => {
@@ -83,6 +133,19 @@ export default function AssignmentForm({
                 ? prev.groupIds.filter(id => id !== groupId)
                 : [...prev.groupIds, groupId]
         }));
+    };
+
+    const handleSelectSuggestedSplitting = (val: string) => {
+        setSplittingMode('auto');
+        setFormData(prev => ({
+            ...prev,
+            hoursSplitting: val
+        }));
+    };
+
+    const handleManualInputChange = (val: string) => {
+        setSplittingMode('manual');
+        setManualSplittingInput(val);
     };
 
     return (
@@ -96,7 +159,11 @@ export default function AssignmentForm({
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 >
                     <option value="">Select subject</option>
-                    {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    {subjects.map(s => (
+                        <option key={s.id} value={s.id}>
+                            {s.name}
+                        </option>
+                    ))}
                 </select>
             </div>
 
@@ -109,7 +176,11 @@ export default function AssignmentForm({
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 >
                     <option value="">Select teacher</option>
-                    {teachers.map(t => <option key={t.id} value={t.id}>{t.fullName}</option>)}
+                    {teachers.map(t => (
+                        <option key={t.id} value={t.id}>
+                            {t.fullName}
+                        </option>
+                    ))}
                 </select>
             </div>
 
@@ -137,7 +208,9 @@ export default function AssignmentForm({
                     min="2"
                     max="30"
                     value={formData.hoursPerWeek}
-                    onChange={e => setFormData({ ...formData, hoursPerWeek: Number(e.target.value) })}
+                    onChange={e =>
+                        setFormData({ ...formData, hoursPerWeek: Number(e.target.value) })
+                    }
                     required
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
@@ -147,7 +220,12 @@ export default function AssignmentForm({
                 <label className="block text-sm font-medium text-gray-700">Shift</label>
                 <select
                     value={formData.shift || ''}
-                    onChange={e => setFormData({ ...formData, shift: e.target.value as Shift || undefined })}
+                    onChange={e =>
+                        setFormData({
+                            ...formData,
+                            shift: (e.target.value as Shift) || undefined
+                        })
+                    }
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 >
                     <option value="">Any</option>
@@ -160,7 +238,12 @@ export default function AssignmentForm({
                 <label className="block text-sm font-medium text-gray-700">Required room type</label>
                 <select
                     value={formData.roomTypeRequired || ''}
-                    onChange={e => setFormData({ ...formData, roomTypeRequired: e.target.value as RoomType || undefined })}
+                    onChange={e =>
+                        setFormData({
+                            ...formData,
+                            roomTypeRequired: (e.target.value as RoomType) || undefined
+                        })
+                    }
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 >
                     <option value="">Any</option>
@@ -173,19 +256,32 @@ export default function AssignmentForm({
                 <label className="block text-sm font-medium text-gray-700">Specific room (optional)</label>
                 <select
                     value={formData.specificRoomId || ''}
-                    onChange={e => setFormData({ ...formData, specificRoomId: Number(e.target.value) || undefined })}
+                    onChange={e =>
+                        setFormData({
+                            ...formData,
+                            specificRoomId: Number(e.target.value) || undefined
+                        })
+                    }
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 >
                     <option value="">Auto-assign</option>
-                    {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    {rooms.map(r => (
+                        <option key={r.id} value={r.id}>
+                            {r.name}
+                        </option>
+                    ))}
                 </select>
             </div>
 
             <SplittingOptions
                 totalHours={formData.hoursPerWeek}
-                value={formData.hoursSplitting}
-                onChange={(val) => setFormData({ ...formData, hoursSplitting: val })}
+                mode={splittingMode}
+                selectedValue={formData.hoursSplitting}
+                manualValue={manualSplittingInput}
                 options={splittingOptions}
+                onModeChange={setSplittingMode}
+                onSelectSuggested={handleSelectSuggestedSplitting}
+                onManualChange={handleManualInputChange}
             />
 
             <ExceptionsPicker

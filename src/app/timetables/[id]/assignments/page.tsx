@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import * as React from 'react';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import { useAuth, subjectApi, teacherApi, groupApi, roomApi, assignmentApi, timetableApi } from '@/lib';
-import { SubjectResponse, TeacherResponse, StudyGroupResponse, RoomResponse, AssignmentResponse, AssignmentRequest } from '@/lib/types';
+import { useAuth, subjectApi, teacherApi, groupApi, roomApi, assignmentApi, timetableApi, timeSlotApi } from '@/lib';
+import { SubjectResponse, TeacherResponse, StudyGroupResponse, RoomResponse, AssignmentResponse, AssignmentRequest, TimeSlot } from '@/lib/types';
 import AssignmentForm from './components/AssignmentForm';
 
 export default function AssignmentsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -14,7 +14,6 @@ export default function AssignmentsPage({ params }: { params: Promise<{ id: stri
     const router = useRouter();
     const { logout } = useAuth();
 
-    // Проверка валидности ID
     if (isNaN(timetableId) || timetableId <= 0) {
         return <div className="p-8 text-center text-red-600">Invalid timetable ID: {unwrappedParams.id}</div>;
     }
@@ -23,6 +22,7 @@ export default function AssignmentsPage({ params }: { params: Promise<{ id: stri
     const [teachers, setTeachers] = useState<TeacherResponse[]>([]);
     const [groups, setGroups] = useState<StudyGroupResponse[]>([]);
     const [rooms, setRooms] = useState<RoomResponse[]>([]);
+    const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
     const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
@@ -35,17 +35,19 @@ export default function AssignmentsPage({ params }: { params: Promise<{ id: stri
     const loadData = async () => {
         try {
             setLoading(true);
-            const [subjectsData, teachersData, groupsData, roomsData, assignmentsData] = await Promise.all([
+            const [subjectsData, teachersData, groupsData, roomsData, timeSlotData, assignmentsData] = await Promise.all([
                 subjectApi.getSubjects(),
                 teacherApi.getTeachers(),
                 groupApi.getAllGroups(),
                 roomApi.getRooms(),
+                timeSlotApi.getTimeSlots(),
                 assignmentApi.getAssignmentsByTimetable(timetableId),
             ]);
             setSubjects(subjectsData);
             setTeachers(teachersData);
             setGroups(groupsData);
             setRooms(roomsData);
+            setTimeSlots(timeSlotData);
             setAssignments(assignmentsData);
         } catch (err) {
             setError('Не удалось загрузить данные');
@@ -164,6 +166,7 @@ export default function AssignmentsPage({ params }: { params: Promise<{ id: stri
                                     teachers={teachers}
                                     groups={groups}
                                     rooms={rooms}
+                                    timeSlots={timeSlots}
                                     onSave={handleAddAssignment}
                                     onCancel={() => setShowForm(false)}
                                 />

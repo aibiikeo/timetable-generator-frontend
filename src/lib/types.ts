@@ -160,7 +160,7 @@ export interface TimetableRequest {
 export interface TimetableResponse {
     id: number;
     name: string;
-    createdAt: string;           // ISO date-time
+    createdAt: string;
     isCurrent: boolean;
     status: TimetableStatus;
     assignments: AssignmentResponse[];
@@ -172,7 +172,7 @@ export interface TimetableResponse {
 export interface LessonRequest {
     assignmentId: number;
     dayOfWeek: DayOfWeek;
-    startTime: string;           // например "09:00"
+    startTime: string;
     durationHours: number;
     roomId?: number;
 }
@@ -216,11 +216,11 @@ export interface GenerationResponse {
 
 export interface TimeSlot {
     id: number;
-    slot?: string;           // например "1st" – может отсутствовать в ответе API
-    dayOfWeek?: DayOfWeek;   // если слот общий для всех дней, то null
+    slot?: string;
+    dayOfWeek?: DayOfWeek;
     order: number;
-    startTime: string;       // "09:00"
-    endTime: string;         // "09:55"
+    startTime: string;
+    endTime: string;
     isLunch?: boolean;
     description?: string;
 }
