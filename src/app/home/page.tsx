@@ -7,7 +7,6 @@ import Link from 'next/link';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { useAuth, api, UserResponse } from '@/lib';
 
-// Типы для сущностей
 interface EntityCard {
     id: string;
     title: string;
@@ -25,7 +24,6 @@ export default function HomePage() {
     const [currentUser, setCurrentUser] = useState<UserResponse | null>(null);
     const [loadingUser, setLoadingUser] = useState(true);
 
-    // Загружаем данные текущего пользователя
     useEffect(() => {
         const fetchCurrentUser = async () => {
             try {
@@ -54,18 +52,18 @@ export default function HomePage() {
         { id: 'users', title: 'Users', description: 'Manage user accounts and permissions', icon: '👥', color: 'blue', endpoint: '/users' },
         { id: 'timetables', title: 'Timetables', description: 'Create and manage timetables', icon: '📅', color: 'green', endpoint: '/timetables' },
         { id: 'subjects', title: 'Subjects', description: 'Manage course subjects', icon: '📚', color: 'orange', endpoint: '/subjects' },
-        { id: 'teachers', title: 'Teachers', description: 'Manage teaching staff', icon: '👨‍🏫', color: 'purple', endpoint: '/teachers' },
         { id: 'groups', title: 'Study Groups', description: 'Manage student groups', icon: '👥', color: 'indigo', endpoint: '/groups' },
-        { id: 'faculties', title: 'Faculties', description: 'Manage faculties and departments', icon: '🏛️', color: 'red', endpoint: '/faculties' },
+        { id: 'teachers', title: 'Teachers', description: 'Manage teaching staff', icon: '👨‍🏫', color: 'purple', endpoint: '/teachers' },
         { id: 'rooms', title: 'Rooms', description: 'Manage classrooms and labs', icon: '🏫', color: 'pink', endpoint: '/rooms' },
+        { id: 'majors', title: 'Majors', description: 'Manage majors and degrees', icon: '🎓', color: 'yellow', endpoint: '/majors' },
+        { id: 'departments', title: 'Departments', description: 'Manage departments', icon: '🏢', color: 'teal', endpoint: '/departments' },
+        { id: 'faculties', title: 'Faculties', description: 'Manage faculties and departments', icon: '🏛️', color: 'red', endpoint: '/faculties' },
     ];
 
-    // Фильтруем сущности в зависимости от роли пользователя
     const entities = currentUser?.role === 'ADMIN'
         ? allEntities.filter(entity => entity.id !== 'users')
         : allEntities;
 
-    // Быстрые действия (самые используемые)
     const quickActions = [
         { id: 'create-timetable', title: 'Create New Timetable', description: 'Start a new timetable generation', endpoint: '/timetables/new' },
         { id: 'view-current', title: 'View Current Timetable', description: 'Check published schedule', endpoint: '/timetables/current' },

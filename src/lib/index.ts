@@ -1,6 +1,7 @@
 // src/lib/index.ts
 export { api, useAuth } from './api';
-export { facultyApi } from './facultyApi';
+export { facultyApi } from './facultyApi';export * from './departmentApi';
+export * from './majorApi';
 export { groupApi } from './groupApi';
 export { roomApi } from './roomApi';
 export { teacherApi } from './teacherApi';

@@ -1,12 +1,14 @@
 'use client';
+
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import { useAuth, facultyApi, groupApi, DeleteMode, StudyGroupResponse } from '@/lib';
+import { useAuth, departmentApi, facultyApi, groupApi, DeleteMode, StudyGroupResponse, FacultyResponse } from '@/lib';
 
-interface Faculty {
+interface Department {
     id: number;
     name: string;
+    facultyId: number;
 }
 
 interface DeleteOption {
@@ -15,26 +17,28 @@ interface DeleteOption {
     groups: StudyGroupResponse[];
 }
 
-type SortField = 'name';
+type SortField = 'name' | 'faculty';
 type SortDirection = 'asc' | 'desc';
 
-export default function FacultiesPage() {
+export default function DepartmentsPage() {
     const router = useRouter();
     const { logout } = useAuth();
-    const [faculties, setFaculties] = useState<Faculty[]>([]);
-    const [filteredFaculties, setFilteredFaculties] = useState<Faculty[]>([]);
+    const [departments, setDepartments] = useState<Department[]>([]);
+    const [filteredDepartments, setFilteredDepartments] = useState<Department[]>([]);
+    const [faculties, setFaculties] = useState<FacultyResponse[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [selectedFaculties, setSelectedFaculties] = useState<number[]>([]);
+    const [selectedDepartments, setSelectedDepartments] = useState<number[]>([]);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-    const [currentFaculty, setCurrentFaculty] = useState<Faculty | null>(null);
+    const [currentDepartment, setCurrentDepartment] = useState<Department | null>(null);
     const [deleteOption, setDeleteOption] = useState<DeleteOption | null>(null);
     const [selectedDeleteOption, setSelectedDeleteOption] = useState<'detach' | 'delete-all' | null>(null);
     const [loadingGroups, setLoadingGroups] = useState(false);
     const [formData, setFormData] = useState({
         name: '',
+        facultyId: 0,
     });
     const [error, setError] = useState<string>('');
 
@@ -42,43 +46,60 @@ export default function FacultiesPage() {
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
     const listRef = useRef<HTMLDivElement>(null);
 
+    const facultyMap = useMemo(() => {
+        const map = new Map<number, string>();
+        faculties.forEach(f => map.set(f.id, f.name));
+        return map;
+    }, [faculties]);
+
     useEffect(() => {
-        fetchFaculties();
+        fetchData();
     }, []);
 
     useEffect(() => {
-        const filtered = faculties.filter(faculty =>
-            faculty.name.toLowerCase().includes(searchQuery.toLowerCase())
+        const lower = searchQuery.toLowerCase();
+        const filtered = departments.filter(dept =>
+            dept.name.toLowerCase().includes(lower) ||
+            (facultyMap.get(dept.facultyId) || '').toLowerCase().includes(lower)
         );
-        setFilteredFaculties(filtered);
-        setSelectedFaculties([]);
-    }, [searchQuery, faculties]);
+        setFilteredDepartments(filtered);
+        setSelectedDepartments([]);
+    }, [searchQuery, departments, facultyMap]);
 
-    const sortedFaculties = useMemo(() => {
-        const sorted = [...filteredFaculties];
+    const sortedDepartments = useMemo(() => {
+        const sorted = [...filteredDepartments];
         sorted.sort((a, b) => {
-            const aValue = a.name.toLowerCase();
-            const bValue = b.name.toLowerCase();
-
-            if (sortDirection === 'asc') {
-                return aValue.localeCompare(bValue);
+            let aVal: string, bVal: string;
+            if (sortField === 'name') {
+                aVal = a.name.toLowerCase();
+                bVal = b.name.toLowerCase();
             } else {
-                return bValue.localeCompare(aValue);
+                aVal = (facultyMap.get(a.facultyId) || '').toLowerCase();
+                bVal = (facultyMap.get(b.facultyId) || '').toLowerCase();
+            }
+            if (sortDirection === 'asc') {
+                return aVal.localeCompare(bVal);
+            } else {
+                return bVal.localeCompare(aVal);
             }
         });
         return sorted;
-    }, [filteredFaculties, sortField, sortDirection]);
+    }, [filteredDepartments, sortField, sortDirection, facultyMap]);
 
-    const fetchFaculties = async () => {
+    const fetchData = async () => {
         try {
             setLoading(true);
             setError('');
-            const data = await facultyApi.getFaculties();
-            setFaculties(data);
-            setFilteredFaculties(data);
+            const [depts, facs] = await Promise.all([
+                departmentApi.getDepartments(),
+                facultyApi.getFaculties(),
+            ]);
+            setDepartments(depts);
+            setFilteredDepartments(depts);
+            setFaculties(facs);
         } catch (err: any) {
-            console.error('Error fetching faculties:', err);
-            setError('Failed to load faculties');
+            console.error('Error fetching data:', err);
+            setError('Failed to load departments');
         } finally {
             setLoading(false);
         }
@@ -86,7 +107,7 @@ export default function FacultiesPage() {
 
     const handleSort = (field: SortField) => {
         if (sortField === field) {
-            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
         } else {
             setSortField(field);
             setSortDirection('asc');
@@ -110,11 +131,15 @@ export default function FacultiesPage() {
         }
     };
 
-    const fetchGroupsForFaculty = async (facultyId: number): Promise<StudyGroupResponse[]> => {
+    const fetchGroupsForDepartment = async (departmentId: number): Promise<StudyGroupResponse[]> => {
         try {
             setLoadingGroups(true);
-            return await groupApi.getGroupsByFacultyId(facultyId);
-        } catch (err: any) {
+            const dept = departments.find(d => d.id === departmentId);
+            if (dept && dept.facultyId) {
+                return await groupApi.getGroupsByFacultyId(dept.facultyId);
+            }
+            return [];
+        } catch (err) {
             console.error('Error fetching groups:', err);
             return [];
         } finally {
@@ -124,139 +149,132 @@ export default function FacultiesPage() {
 
     const handleCreateSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!formData.facultyId) {
+            setError('Please select a faculty');
+            return;
+        }
         try {
             setError('');
-            await facultyApi.createFaculty(formData);
+            await departmentApi.createDepartment({
+                name: formData.name,
+                facultyId: formData.facultyId,
+            });
             setIsCreateModalOpen(false);
-            setFormData({ name: '' });
-            fetchFaculties();
+            setFormData({ name: '', facultyId: 0 });
+            fetchData();
         } catch (err: any) {
-            console.error('Error creating faculty:', err);
-            setError(err.response?.data?.message || 'Failed to create faculty');
+            console.error('Error creating department:', err);
+            setError(err.response?.data?.message || 'Failed to create department');
         }
     };
 
     const handleEditSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!currentFaculty) return;
+        if (!currentDepartment) return;
+        if (!formData.facultyId) {
+            setError('Please select a faculty');
+            return;
+        }
         try {
             setError('');
-            await facultyApi.updateFaculty(currentFaculty.id, formData);
+            await departmentApi.updateDepartment(currentDepartment.id, {
+                name: formData.name,
+                facultyId: formData.facultyId,
+            });
             setIsEditModalOpen(false);
-            setCurrentFaculty(null);
-            setFormData({ name: '' });
-            fetchFaculties();
+            setCurrentDepartment(null);
+            setFormData({ name: '', facultyId: 0 });
+            fetchData();
         } catch (err: any) {
-            console.error('Error updating faculty:', err);
-            setError(err.response?.data?.message || 'Failed to update faculty');
+            console.error('Error updating department:', err);
+            setError(err.response?.data?.message || 'Failed to update department');
         }
     };
 
-    const handleDelete = async (faculty: Faculty) => {
+    const handleDelete = async (department: Department) => {
         try {
-            const groups = await fetchGroupsForFaculty(faculty.id);
+            const groups = await fetchGroupsForDepartment(department.id);
             if (groups.length > 0) {
                 setDeleteOption({
-                    id: faculty.id,
-                    name: faculty.name,
-                    groups: groups
+                    id: department.id,
+                    name: department.name,
+                    groups,
                 });
                 setSelectedDeleteOption(null);
                 setIsDeleteModalOpen(true);
             } else {
-                await facultyApi.deleteFaculty(faculty.id, "SIMPLE");
-                fetchFaculties();
+                await departmentApi.deleteDepartment(department.id, 'SIMPLE');
+                fetchData();
             }
         } catch (err: any) {
-            console.error('Error checking faculty groups:', err);
-            setError('Failed to check faculty groups');
+            console.error('Error checking department groups:', err);
+            setError('Failed to check department groups');
         }
     };
 
-    const confirmDeleteFaculty = async () => {
+    const confirmDeleteDepartment = async () => {
         if (!deleteOption || !selectedDeleteOption) return;
         try {
-            setError('');
-            let mode: DeleteMode;
-            if (selectedDeleteOption === 'detach') {
-                mode = "DETACH";
-            } else if (selectedDeleteOption === 'delete-all') {
-                mode = "WITH";
-            } else {
-                mode = "SIMPLE";
-            }
-            await facultyApi.deleteFaculty(deleteOption.id, mode);
+            const mode: DeleteMode = selectedDeleteOption === 'detach' ? 'DETACH' : 'WITH';
+            await departmentApi.deleteDepartment(deleteOption.id, mode);
             setIsDeleteModalOpen(false);
             setDeleteOption(null);
             setSelectedDeleteOption(null);
-            fetchFaculties();
+            fetchData();
         } catch (err: any) {
-            console.error('Error deleting faculty:', err);
-            setError(err.response?.data?.message || 'Failed to delete faculty');
+            console.error('Error deleting department:', err);
+            setError(err.response?.data?.message || 'Failed to delete department');
         }
     };
 
     const handleDeleteSelected = async () => {
-        if (selectedFaculties.length === 0) return;
-
-        if (confirm(`Are you sure you want to delete ${selectedFaculties.length} selected faculties? Any associated groups and subjects will be detached (they will remain but without faculty).`)) {
+        if (selectedDepartments.length === 0) return;
+        if (confirm(`Delete ${selectedDepartments.length} selected departments? Any associated groups will be detached.`)) {
             try {
                 setError('');
                 let failedCount = 0;
-                const deletePromises = selectedFaculties.map(async (id) => {
+                await Promise.all(selectedDepartments.map(async (id) => {
                     try {
-                        await facultyApi.deleteFaculty(id, "SIMPLE");
-                    } catch (err) {
-                        console.error(`Error deleting faculty ${id}:`, err);
+                        await departmentApi.deleteDepartment(id, 'SIMPLE');
+                    } catch {
                         failedCount++;
                     }
-                });
-                await Promise.all(deletePromises);
-
-                if (failedCount > 0) {
-                    setError(`${failedCount} faculty(s) could not be deleted.`);
-                }
-                setSelectedFaculties([]);
-                fetchFaculties();
-            } catch (err: any) {
-                console.error('Error deleting selected faculties:', err);
-                setError('Failed to delete some faculties.');
+                }));
+                if (failedCount > 0) setError(`${failedCount} department(s) could not be deleted.`);
+                setSelectedDepartments([]);
+                fetchData();
+            } catch {
+                setError('Failed to delete some departments.');
             }
         }
     };
 
-    const handleEdit = (faculty: Faculty) => {
-        setCurrentFaculty(faculty);
+    const handleEdit = (department: Department) => {
+        setCurrentDepartment(department);
         setFormData({
-            name: faculty.name,
+            name: department.name,
+            facultyId: department.facultyId,
         });
         setIsEditModalOpen(true);
     };
 
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.checked) {
-            setSelectedFaculties(sortedFaculties.map(f => f.id));
-        } else {
-            setSelectedFaculties([]);
-        }
+        setSelectedDepartments(e.target.checked ? sortedDepartments.map(d => d.id) : []);
     };
 
-    const handleSelectFaculty = (id: number) => {
-        setSelectedFaculties(prev =>
-            prev.includes(id)
-                ? prev.filter(facultyId => facultyId !== id)
-                : [...prev, id]
+    const handleSelectDepartment = (id: number) => {
+        setSelectedDepartments(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
         );
     };
 
     const handleCreateModalOpen = () => {
         setError('');
-        setFormData({ name: '' });
+        setFormData({ name: '', facultyId: 0 });
         setIsCreateModalOpen(true);
     };
 
     const handleLogout = () => {
-        console.log('[Logout] Initiating logout...');
         logout();
         router.push('/login');
     };
@@ -273,7 +291,7 @@ export default function FacultiesPage() {
 
     return (
         <ProtectedRoute>
-            {/* Header */}
+            {/* Header (без изменений) */}
             <header className="fixed top-0 left-0 right-0 bg-white shadow-sm border-b z-50">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center h-16">
@@ -293,7 +311,7 @@ export default function FacultiesPage() {
                             </div>
                             <div className="ml-3 flex items-center space-x-4">
                                 <h1 className="text-xl font-semibold text-gray-900">
-                                    Faculties Management
+                                    Departments Management
                                 </h1>
                                 <button
                                     onClick={() => router.push('/home')}
@@ -328,7 +346,7 @@ export default function FacultiesPage() {
                                 <div className="relative">
                                     <input
                                         type="text"
-                                        placeholder="Search faculties by name..."
+                                        placeholder="Search by department or faculty name..."
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
                                         className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -339,7 +357,7 @@ export default function FacultiesPage() {
                                 </div>
                             </div>
                             <div className="flex items-center space-x-4">
-                                {selectedFaculties.length > 0 && (
+                                {selectedDepartments.length > 0 && (
                                     <button
                                         onClick={handleDeleteSelected}
                                         className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center"
@@ -347,7 +365,7 @@ export default function FacultiesPage() {
                                         <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                         </svg>
-                                        Delete Selected ({selectedFaculties.length})
+                                        Delete Selected ({selectedDepartments.length})
                                     </button>
                                 )}
                                 <button
@@ -357,7 +375,7 @@ export default function FacultiesPage() {
                                     <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                                     </svg>
-                                    Create New Faculty
+                                    Create New Department
                                 </button>
                             </div>
                         </div>
@@ -392,12 +410,12 @@ export default function FacultiesPage() {
                     </div>
                 )}
 
-                {/* Faculties List */}
+                {/* Departments List */}
                 <div className="flex-1">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 h-full">
-                        {sortedFaculties.length === 0 ? (
+                        {sortedDepartments.length === 0 ? (
                             <div className="text-center py-12 h-full flex flex-col items-center justify-center">
-                                <div className="text-gray-400 mb-4 text-lg">No faculties found</div>
+                                <div className="text-gray-400 mb-4 text-lg">No departments found</div>
                             </div>
                         ) : (
                             <div className="bg-white rounded-lg border border-gray-200 overflow-hidden h-full flex flex-col">
@@ -407,7 +425,7 @@ export default function FacultiesPage() {
                                         <div className="flex items-center w-12 pl-2">
                                             <input
                                                 type="checkbox"
-                                                checked={selectedFaculties.length === sortedFaculties.length && sortedFaculties.length > 0}
+                                                checked={selectedDepartments.length === sortedDepartments.length && sortedDepartments.length > 0}
                                                 onChange={handleSelectAll}
                                                 className="h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
                                                 title="Select All"
@@ -415,14 +433,24 @@ export default function FacultiesPage() {
                                         </div>
                                         <div className="grid grid-cols-12 flex-1">
                                             <div
-                                                className="col-span-6 text-sm font-medium text-gray-700 pl-2 cursor-pointer flex items-center hover:text-blue-600"
+                                                className="col-span-4 text-sm font-medium text-gray-700 pl-2 cursor-pointer flex items-center hover:text-blue-600"
                                                 onClick={() => handleSort('name')}
                                             >
                                                 Name
                                                 {getSortIcon('name')}
                                             </div>
-                                            <div className="col-span-4"></div>
-                                            <div className="col-span-2 text-sm font-medium text-gray-700 text-right pr-4">Actions</div>
+
+                                            <div
+                                                className="col-span-4 text-sm font-medium text-gray-700 cursor-pointer flex items-center hover:text-blue-600"
+                                                onClick={() => handleSort('faculty')}
+                                            >
+                                                Faculty
+                                                {getSortIcon('faculty')}
+                                            </div>
+
+                                            <div className="col-span-4 text-sm font-medium text-gray-700 text-right pr-4">
+                                                Actions
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -433,28 +461,34 @@ export default function FacultiesPage() {
                                     className="flex-1 overflow-y-auto custom-scrollbar"
                                     style={{ maxHeight: 'calc(100vh - 230px)' }}
                                 >
-                                    {sortedFaculties.map((faculty) => (
-                                        <div key={faculty.id} className="px-6 py-4 hover:bg-gray-50 border-b border-gray-100 last:border-b-0">
+                                    {sortedDepartments.map((department) => (
+                                        <div key={department.id} className="px-6 py-4 hover:bg-gray-50 border-b border-gray-100 last:border-b-0">
                                             <div className="flex items-center">
                                                 <div className="flex items-center w-12 pl-2">
                                                     <input
                                                         type="checkbox"
-                                                        checked={selectedFaculties.includes(faculty.id)}
-                                                        onChange={() => handleSelectFaculty(faculty.id)}
+                                                        checked={selectedDepartments.includes(department.id)}
+                                                        onChange={() => handleSelectDepartment(department.id)}
                                                         className="h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
                                                     />
                                                 </div>
                                                 <div className="grid grid-cols-12 flex-1 items-center">
-                                                    <div className="col-span-6 pl-2">
-                                                        <div className="font-medium text-gray-900 truncate" title={faculty.name}>
-                                                            {faculty.name}
+                                                    <div className="col-span-4 pl-2">
+                                                        <div className="font-medium text-gray-900 truncate" title={department.name}>
+                                                            {department.name}
                                                         </div>
-                                                        <div className="text-sm text-gray-500">ID: {faculty.id}</div>
+                                                        <div className="text-sm text-gray-500">ID: {department.id}</div>
                                                     </div>
-                                                    <div className="col-span-4"></div>
-                                                    <div className="col-span-2 flex justify-end space-x-2 pr-4">
+
+                                                    <div className="col-span-4">
+                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                                            {facultyMap.get(department.facultyId) || 'Unknown Faculty'}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="col-span-4 flex justify-end space-x-2 pr-4">
                                                         <button
-                                                            onClick={() => handleEdit(faculty)}
+                                                            onClick={() => handleEdit(department)}
                                                             className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md flex items-center"
                                                         >
                                                             <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -462,8 +496,9 @@ export default function FacultiesPage() {
                                                             </svg>
                                                             Edit
                                                         </button>
+
                                                         <button
-                                                            onClick={() => handleDelete(faculty)}
+                                                            onClick={() => handleDelete(department)}
                                                             className="px-3 py-1.5 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md flex items-center"
                                                         >
                                                             <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -483,13 +518,13 @@ export default function FacultiesPage() {
                 </div>
             </main>
 
-            {/* Create Faculty Modal */}
+            {/* Create Department Modal */}
             {isCreateModalOpen && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-md transform transition-all">
                         <div className="p-6">
                             <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-lg font-semibold text-gray-900">Create New Faculty</h3>
+                                <h3 className="text-lg font-semibold text-gray-900">Create New Department</h3>
                                 <button
                                     onClick={() => setIsCreateModalOpen(false)}
                                     className="text-gray-400 hover:text-gray-500 transition-colors"
@@ -503,7 +538,7 @@ export default function FacultiesPage() {
                                 <div className="space-y-4">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Faculty Name *
+                                            Department Name *
                                         </label>
                                         <input
                                             type="text"
@@ -511,9 +546,25 @@ export default function FacultiesPage() {
                                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                                             required
-                                            placeholder="Enter faculty name"
+                                            placeholder="Enter department name"
                                             autoFocus
                                         />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Faculty *
+                                        </label>
+                                        <select
+                                            value={formData.facultyId}
+                                            onChange={(e) => setFormData({ ...formData, facultyId: Number(e.target.value) })}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                                            required
+                                        >
+                                            <option value={0}>Select faculty</option>
+                                            {faculties.map(f => (
+                                                <option key={f.id} value={f.id}>{f.name}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                 </div>
                                 <div className="mt-8 flex justify-end space-x-3">
@@ -528,7 +579,7 @@ export default function FacultiesPage() {
                                         type="submit"
                                         className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                                     >
-                                        Create Faculty
+                                        Create Department
                                     </button>
                                 </div>
                             </form>
@@ -537,13 +588,13 @@ export default function FacultiesPage() {
                 </div>
             )}
 
-            {/* Edit Faculty Modal */}
-            {isEditModalOpen && currentFaculty && (
+            {/* Edit Department Modal */}
+            {isEditModalOpen && currentDepartment && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-md transform transition-all">
                         <div className="p-6">
                             <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-lg font-semibold text-gray-900">Edit Faculty</h3>
+                                <h3 className="text-lg font-semibold text-gray-900">Edit Department</h3>
                                 <button
                                     onClick={() => setIsEditModalOpen(false)}
                                     className="text-gray-400 hover:text-gray-500 transition-colors"
@@ -557,7 +608,7 @@ export default function FacultiesPage() {
                                 <div className="space-y-4">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Faculty Name *
+                                            Department Name *
                                         </label>
                                         <input
                                             type="text"
@@ -565,9 +616,25 @@ export default function FacultiesPage() {
                                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                                             required
-                                            placeholder="Enter faculty name"
+                                            placeholder="Enter department name"
                                             autoFocus
                                         />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Faculty *
+                                        </label>
+                                        <select
+                                            value={formData.facultyId}
+                                            onChange={(e) => setFormData({ ...formData, facultyId: Number(e.target.value) })}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                                            required
+                                        >
+                                            <option value={0}>Select faculty</option>
+                                            {faculties.map(f => (
+                                                <option key={f.id} value={f.id}>{f.name}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                 </div>
                                 <div className="mt-8 flex justify-end space-x-3">
@@ -591,14 +658,14 @@ export default function FacultiesPage() {
                 </div>
             )}
 
-            {/* Delete Mode Selection Modal */}
+            {/* Delete Mode Selection Modal (без изменений) */}
             {isDeleteModalOpen && deleteOption && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl transform transition-all">
                         <div className="p-6">
                             <div className="flex justify-between items-center mb-6">
                                 <div>
-                                    <h3 className="text-lg font-semibold text-gray-900">Delete Faculty</h3>
+                                    <h3 className="text-lg font-semibold text-gray-900">Delete Department</h3>
                                     <p className="text-sm text-gray-500 mt-1">
                                         "{deleteOption.name}" has {deleteOption.groups.length} associated study group(s)
                                     </p>
@@ -618,6 +685,7 @@ export default function FacultiesPage() {
                             </div>
 
                             <div className="space-y-6">
+                                {/* Detach option */}
                                 <div
                                     className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 cursor-pointer"
                                     onClick={() => setSelectedDeleteOption('detach')}
@@ -629,9 +697,9 @@ export default function FacultiesPage() {
                                             )}
                                         </div>
                                         <div className="flex-1">
-                                            <h4 className="font-medium text-gray-900">Detach groups and delete faculty</h4>
+                                            <h4 className="font-medium text-gray-900">Detach groups and delete department</h4>
                                             <p className="text-sm text-gray-500 mt-1">
-                                                Keep study groups but remove their faculty association. Groups will become "No Faculty".
+                                                Keep study groups but remove their department association. Groups will become "No Department".
                                             </p>
                                             <div className="mt-3">
                                                 <div className="text-xs text-gray-400">Affected groups:</div>
@@ -652,6 +720,7 @@ export default function FacultiesPage() {
                                     </div>
                                 </div>
 
+                                {/* Delete all option */}
                                 <div
                                     className="border border-gray-200 rounded-lg p-4 hover:border-red-300 cursor-pointer"
                                     onClick={() => setSelectedDeleteOption('delete-all')}
@@ -663,9 +732,9 @@ export default function FacultiesPage() {
                                             )}
                                         </div>
                                         <div className="flex-1">
-                                            <h4 className="font-medium text-gray-900">Delete faculty with all groups</h4>
+                                            <h4 className="font-medium text-gray-900">Delete department with all groups</h4>
                                             <p className="text-sm text-gray-500 mt-1">
-                                                Permanently delete the faculty and all {deleteOption.groups.length} associated study groups.
+                                                Permanently delete the department and all {deleteOption.groups.length} associated study groups.
                                                 <span className="text-red-600 font-medium ml-1">This action cannot be undone.</span>
                                             </p>
                                             <div className="mt-3">
@@ -724,7 +793,7 @@ export default function FacultiesPage() {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={confirmDeleteFaculty}
+                                        onClick={confirmDeleteDepartment}
                                         disabled={!selectedDeleteOption}
                                         className={`px-4 py-2 text-white rounded-lg transition-colors ${
                                             selectedDeleteOption === 'delete-all'

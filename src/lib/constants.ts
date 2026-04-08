@@ -20,8 +20,6 @@ export const DAYS_SHORT: Record<DayOfWeek, string> = {
     SUNDAY: 'Sun'
 };
 
-
-// Массив цветов для предметов (как в примере)
 export const LESSON_COLORS = [
     '#FFD3B6', '#DCEDC8', '#FFD180', '#FFECB3', '#CFD8DC',
     '#B3E5FC', '#B2DFDB', '#C8E6C9', '#F8BBD0', '#E1BEE7',

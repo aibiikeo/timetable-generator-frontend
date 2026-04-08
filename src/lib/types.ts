@@ -6,6 +6,7 @@ export type RoomType = 'CLASSROOM' | 'COMPUTER_LAB' | 'ANY';
 export type TimetableStatus = 'DRAFT' | 'GENERATED' | 'PARTIAL' | 'PUBLISHED' | 'ARCHIVED';
 export type DeleteMode = 'SIMPLE' | 'DETACH' | 'WITH';
 export type GenerationMode = 'NEW' | 'APPEND';
+export type Degree = 'BACHELOR' | 'MASTER' | 'SPECIALIST';
 
 // ====================== AUTH ======================
 export interface LoginRequest {
@@ -40,13 +41,11 @@ export interface UserResponse {
 // ====================== FACULTY ======================
 export interface FacultyRequest {
     name: string;
-    shortName: string;
 }
 
 export interface FacultyResponse {
     id: number;
     name: string;
-    shortName: string;
 }
 
 // ====================== STUDY GROUP ======================
@@ -223,4 +222,36 @@ export interface TimeSlot {
     endTime: string;
     isLunch?: boolean;
     description?: string;
+}
+
+// Department
+export interface DepartmentResponse {
+    id: number;
+    name: string;
+    facultyId: number;
+    facultyName?: string;
+}
+
+export interface DepartmentRequest {
+    name: string;
+    facultyId: number;
+}
+
+// Major
+export interface MajorResponse {
+    id: number;
+    name: string;
+    shortName?: string;
+    degree: Degree;
+    departmentId: number;
+    departmentName: string;
+    facultyId: number;
+    facultyName: string;
+}
+
+export interface MajorRequest {
+    name: string;
+    shortName?: string;
+    degree: 'BACHELOR' | 'MASTER' | 'SPECIALIST';
+    departmentId: number;
 }
