@@ -1,9 +1,8 @@
-// src/app/components/ProtectedRoute.tsx
-'use client';
+"use client";
 
-import { useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-import { api } from '@/lib';
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { api } from "@/lib";
 
 interface ProtectedRouteProps {
     children: React.ReactNode;
@@ -11,23 +10,31 @@ interface ProtectedRouteProps {
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     const router = useRouter();
-    const authChecked = useRef(false);
+    const [checked, setChecked] = useState(false);
 
     useEffect(() => {
-        // Проверяем авторизацию только один раз
-        if (!authChecked.current) {
-            const token = api.getAccessToken();
+        const token = api.getAccessToken();
 
-            if (!token) {
-                console.log('[Auth] No token found, redirecting to login');
-                router.push('/login');
-                return;
-            }
-
-            console.log('[Auth] Token found, access granted');
-            authChecked.current = true;
+        if (!token) {
+            router.replace("/login");
+            return;
         }
+
+        setChecked(true);
     }, [router]);
+
+    if (!checked) {
+        return (
+            <div className="flex min-h-screen items-center justify-center bg-background">
+                <div className="glass-card rounded-2xl p-8 text-center">
+                    <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    <p className="mt-4 text-sm text-muted-foreground">
+                        Checking session...
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     return <>{children}</>;
 }
