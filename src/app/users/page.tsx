@@ -1,12 +1,39 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
-import ProtectedRoute from '@/components/ProtectedRoute';
-import { useAuth, userApi, UserResponse, UserRole } from '@/lib';
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+    Edit,
+    Loader2,
+    Plus,
+    Search,
+    ShieldCheck,
+    Trash2,
+    Users,
+} from "lucide-react";
 
-type SortField = 'email' | 'role';
-type SortDirection = 'asc' | 'desc';
+import { AppShell } from "@/components/layout/AppShell";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+    Card,
+    CardContent,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getStoredUserRole, loadCurrentUserByStoredEmail } from "@/lib/authRole";
+import {
+    UserResponse,
+    UserRole,
+    userApi,
+} from "@/lib";
+
+type SortField = "email" | "role";
+type SortDirection = "asc" | "desc";
 
 interface FormDataState {
     email: string;
@@ -14,725 +41,839 @@ interface FormDataState {
     role: UserRole;
 }
 
+interface FormErrors {
+    email?: string;
+    password?: string;
+    role?: string;
+    general?: string;
+}
+
+const EMPTY_FORM: FormDataState = {
+    email: "",
+    password: "",
+    role: "ADMIN",
+};
+
+const USER_ROLES: UserRole[] = ["ADMIN", "SUPER_ADMIN"];
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+    if (
+        typeof error === "object" &&
+        error !== null &&
+        "response" in error
+    ) {
+        const axiosError = error as {
+            response?: {
+                data?: unknown;
+                status?: number;
+            };
+        };
+
+        const data = axiosError.response?.data;
+
+        if (typeof data === "string") {
+            return data;
+        }
+
+        if (typeof data === "object" && data !== null) {
+            const body = data as {
+                message?: string;
+                error?: string;
+                details?: string;
+            };
+
+            if (body.message) return body.message;
+            if (body.error) return body.error;
+            if (body.details) return body.details;
+        }
+
+        if (axiosError.response?.status === 400) {
+            return "Invalid data. Check email, password and role.";
+        }
+
+        if (axiosError.response?.status === 403) {
+            return "You do not have permission to perform this action.";
+        }
+
+        if (axiosError.response?.status === 409) {
+            return "This user already exists.";
+        }
+    }
+
+    return fallback;
+}
+
+function mapUserApiErrorToFormErrors(message: string): FormErrors {
+    const lower = message.toLowerCase();
+
+    if (
+        lower.includes("email") ||
+        lower.includes("already in use") ||
+        lower.includes("already exists")
+    ) {
+        return {
+            email: message,
+        };
+    }
+
+    if (
+        lower.includes("password") ||
+        lower.includes("пароль")
+    ) {
+        return {
+            password: message,
+        };
+    }
+
+    if (
+        lower.includes("role") ||
+        lower.includes("роль")
+    ) {
+        return {
+            role: message,
+        };
+    }
+
+    return {
+        general: message,
+    };
+}
+
 export default function UsersPage() {
     const router = useRouter();
-    const { logout } = useAuth();
+
     const [users, setUsers] = useState<UserResponse[]>([]);
-    const [filteredUsers, setFilteredUsers] = useState<UserResponse[]>([]);
     const [loading, setLoading] = useState(true);
-    const [searchQuery, setSearchQuery] = useState('');
+    const [error, setError] = useState("");
+
+    const [searchQuery, setSearchQuery] = useState("");
     const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
+
+    const [sortField, setSortField] = useState<SortField>("email");
+    const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [currentUser, setCurrentUser] = useState<UserResponse | null>(null);
-    const [createError, setCreateError] = useState('');
-    const [formData, setFormData] = useState<FormDataState>({
-        email: '',
-        password: '',
-        role: 'ADMIN',
-    });
-    const [error, setError] = useState('');
 
-    // Sorting
-    const [sortField, setSortField] = useState<SortField>('email');
-    const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-    const listRef = useRef<HTMLDivElement>(null);
-    const emailInputRef = useRef<HTMLInputElement>(null);
-    const passwordInputRef = useRef<HTMLInputElement>(null);
-    const roleSelectRef = useRef<HTMLSelectElement>(null);
+    const [formData, setFormData] = useState<FormDataState>(EMPTY_FORM);
+    const [formErrors, setFormErrors] = useState<FormErrors>({});
 
-    useEffect(() => {
-        fetchUsers();
-    }, []);
+    const [checkingAccess, setCheckingAccess] = useState(true);
+    const [hasAccess, setHasAccess] = useState(false);
 
-    // Filter users
-    useEffect(() => {
+    const filteredUsers = useMemo(() => {
+        if (!searchQuery.trim()) return users;
+
         const lower = searchQuery.toLowerCase();
-        const filtered = users.filter(user =>
-            user.email.toLowerCase().includes(lower) ||
-            user.role.toLowerCase().includes(lower) ||
-            user.id.toString().includes(lower)
-        );
-        setFilteredUsers(filtered);
-        setSelectedUsers([]);
-    }, [searchQuery, users]);
 
-    // Sort users
-    const sortedUsers = useMemo(() => {
-        const sorted = [...filteredUsers];
-        sorted.sort((a, b) => {
-            const direction = sortDirection === 'asc' ? 1 : -1;
-
-            if (sortField === 'email') {
-                return a.email.toLowerCase().localeCompare(b.email.toLowerCase()) * direction;
-            } else if (sortField === 'role') {
-                return a.role.localeCompare(b.role) * direction;
-            }
-
-            return 0;
+        return users.filter((user) => {
+            return (
+                user.email.toLowerCase().includes(lower) ||
+                user.role.toLowerCase().includes(lower) ||
+                user.id.toString().includes(lower)
+            );
         });
-        return sorted;
+    }, [users, searchQuery]);
+
+    const sortedUsers = useMemo(() => {
+        return [...filteredUsers].sort((a, b) => {
+            const direction = sortDirection === "asc" ? 1 : -1;
+
+            return (
+                String(a[sortField]).localeCompare(String(b[sortField])) *
+                direction
+            );
+        });
     }, [filteredUsers, sortField, sortDirection]);
 
-    const fetchUsers = async () => {
+    const superAdminCount = useMemo(() => {
+        return users.filter((user) => user.role === "SUPER_ADMIN").length;
+    }, [users]);
+
+    const loadData = async (initial = false) => {
         try {
-            setLoading(true);
-            setError('');
+            if (initial) setLoading(true);
+
+            setError("");
+
             const data = await userApi.getUsers();
             setUsers(data);
-            setFilteredUsers(data);
-        } catch (err: any) {
-            console.error('Error fetching users:', err);
-            setError('Failed to load users');
+        } catch {
+            setError("Failed to load users");
         } finally {
-            setLoading(false);
+            if (initial) setLoading(false);
         }
+    };
+
+    useEffect(() => {
+        const checkAccess = async () => {
+            try {
+                let role = getStoredUserRole();
+
+                if (!role) {
+                    const user = await loadCurrentUserByStoredEmail();
+                    role = user?.role ?? null;
+                }
+
+                if (role !== "SUPER_ADMIN") {
+                    setHasAccess(false);
+                    router.replace("/home");
+                    return;
+                }
+
+                setHasAccess(true);
+            } catch {
+                setHasAccess(false);
+                router.replace("/home");
+            } finally {
+                setCheckingAccess(false);
+            }
+        };
+
+        void checkAccess();
+    }, [router]);
+
+    useEffect(() => {
+        if (!checkingAccess && hasAccess) {
+            void loadData(true);
+        }
+    }, [checkingAccess, hasAccess]);
+
+    const resetForm = () => {
+        setFormData(EMPTY_FORM);
+        setFormErrors({});
     };
 
     const handleSort = (field: SortField) => {
         if (sortField === field) {
-            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+            setSortDirection((current) =>
+                current === "asc" ? "desc" : "asc",
+            );
         } else {
             setSortField(field);
-            setSortDirection('asc');
+            setSortDirection("asc");
         }
     };
 
-    const getSortIcon = (field: SortField) => {
-        if (sortField !== field) return null;
-        return sortDirection === 'asc' ? (
-            <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-            </svg>
-        ) : (
-            <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+    const getSortLabel = (field: SortField, label: string) => {
+        const isActive = sortField === field;
+
+        return (
+            <button
+                type="button"
+                onClick={() => handleSort(field)}
+                className="inline-flex items-center gap-1 font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+                {label}
+                {isActive && (
+                    <span className="text-xs">
+                        {sortDirection === "asc" ? "↑" : "↓"}
+                    </span>
+                )}
+            </button>
         );
     };
 
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const handleInputChange = (
+        e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+    ) => {
         const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-        setCreateError('');
+
+        setFormData((prev) => ({
+            ...prev,
+            [name]: value,
+        }));
+
+        setFormErrors((prev) => ({
+            ...prev,
+            [name]: undefined,
+            general: undefined,
+        }));
     };
 
-    const validateForm = (isEdit: boolean): boolean => {
-        if (!formData.email.trim()) {
-            setCreateError('Email is required');
-            emailInputRef.current?.focus();
-            return false;
+    const validateForm = (mode: "create" | "edit") => {
+        const nextErrors: FormErrors = {};
+        const email = formData.email.trim();
+        const password = formData.password.trim();
+
+        if (!email) {
+            nextErrors.email = "Email is required";
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            nextErrors.email = "Enter a valid email address";
         }
-        const password = formData.password;
-        if (!isEdit && !password.trim()) {
-            setError('Password is required for new users');
-            passwordInputRef.current?.focus();
-            return false;
+
+        if (mode === "create" && !password) {
+            nextErrors.password = "Password is required for a new user";
+        } else if (password && password.length < 6) {
+            nextErrors.password = "Password must be at least 6 characters";
         }
-        if (password.trim() && password.length < 8) {
-            passwordInputRef.current?.focus();
-            return false;
+
+        if (formData.role !== "ADMIN" && formData.role !== "SUPER_ADMIN") {
+            nextErrors.role = "Please select a valid role";
         }
-        if (!formData.role) {
-            setError('Role is required');
-            roleSelectRef.current?.focus();
-            return false;
-        }
-        return true;
+
+        setFormErrors(nextErrors);
+
+        return Object.keys(nextErrors).length === 0;
     };
 
     const handleCreateSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!validateForm(false)) return;
 
-        setCreateError('');
-
-        const emailExists = users.some(
-            u => u.email.toLowerCase() === formData.email.toLowerCase()
-        );
-
-        if (emailExists) {
-            setCreateError('Email is already in use');
-            emailInputRef.current?.focus();
-            return;
-        }
+        if (!validateForm("create")) return;
 
         try {
-            setError('');
+            setError("");
+            setFormErrors({});
+
             await userApi.createUser({
-                email: formData.email,
-                password: formData.password,
+                email: formData.email.trim(),
+                password: formData.password.trim(),
                 role: formData.role,
             });
+
             setIsCreateModalOpen(false);
-            setFormData({ email: '', password: '', role: 'ADMIN' });
-            fetchUsers();
-        } catch (err: any) {
-            console.error('Error creating user:', err);
+            resetForm();
 
-            const message =
-                err.response?.data?.message ||
-                err.response?.data ||
-                'Failed to create user';
-
-            if (message.includes('Email is already in use')) {
-                setCreateError('This email is already registered.');
-                emailInputRef.current?.focus();
-            } else {
-                setCreateError(message);
-            }
+            await loadData();
+        } catch (err) {
+            const message = getApiErrorMessage(err, "Failed to create user");
+            setFormErrors(mapUserApiErrorToFormErrors(message));
         }
     };
 
     const handleEditSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
         if (!currentUser) return;
-        if (!validateForm(true)) return;
+        if (!validateForm("edit")) return;
 
         try {
-            setError('');
-            const updateData: Partial<{ email: string; password: string; role: UserRole }> = {
-                email: formData.email,
+            setError("");
+            setFormErrors({});
+
+            await userApi.updateUser(currentUser.id, {
+                email: formData.email.trim(),
                 role: formData.role,
-            };
-            if (formData.password.trim()) {
-                updateData.password = formData.password;
-            }
-            await userApi.updateUser(currentUser.id, updateData);
+                ...(formData.password.trim()
+                    ? { password: formData.password.trim() }
+                    : {}),
+            });
+
             setIsEditModalOpen(false);
             setCurrentUser(null);
-            setFormData({ email: '', password: '', role: 'ADMIN' });
-            fetchUsers();
-        } catch (err: any) {
-            console.error('Error updating user:', err);
-            setError(err.response?.data?.message || 'Failed to update user');
+            resetForm();
+
+            await loadData();
+        } catch (err) {
+            const message = getApiErrorMessage(err, "Failed to update user");
+            setFormErrors(mapUserApiErrorToFormErrors(message));
         }
     };
 
-    const handleDelete = async (id: number) => {
-        const userToDelete = users.find(u => u.id === id);
+    const handleEdit = (user: UserResponse) => {
+        setError("");
+        setFormErrors({});
+        setCurrentUser(user);
 
-        if (userToDelete?.role === 'SUPER_ADMIN') {
-            const superAdminCount = users.filter(u => u.role === 'SUPER_ADMIN').length;
-            if (superAdminCount === 1) {
-                setError('Cannot delete the last SUPER_ADMIN user');
-                return;
-            }
-        }
+        setFormData({
+            email: user.email,
+            password: "",
+            role: user.role,
+        });
 
-        if (!confirm('Are you sure you want to delete this user?')) return;
+        setIsEditModalOpen(true);
+    };
+
+    const handleDelete = async (user: UserResponse) => {
+        if (!confirm(`Delete user "${user.email}"?`)) return;
 
         try {
-            setError('');
-            await userApi.deleteUser(id);
-            fetchUsers();
-        } catch (err: any) {
-            console.error('Error deleting user:', err);
-            setError(err.response?.data?.message || 'Failed to delete user');
+            setError("");
+
+            await userApi.deleteUser(user.id);
+            await loadData();
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to delete user"));
         }
     };
 
     const handleDeleteSelected = async () => {
         if (selectedUsers.length === 0) return;
 
-        // Проверка на последнего SUPER_ADMIN
-        const superAdminsToDelete = users
-            .filter(u => selectedUsers.includes(u.id) && u.role === 'SUPER_ADMIN')
-            .length;
-        const totalSuperAdmins = users.filter(u => u.role === 'SUPER_ADMIN').length;
-
-        if (superAdminsToDelete > 0 && superAdminsToDelete === totalSuperAdmins) {
-            setError('Cannot delete all SUPER_ADMIN users');
-            return;
-        }
-
-        if (!confirm(`Are you sure you want to delete ${selectedUsers.length} selected users?`)) return;
+        if (!confirm(`Delete ${selectedUsers.length} selected users?`)) return;
 
         try {
-            setError('');
-            const deletePromises = selectedUsers.map(id =>
-                userApi.deleteUser(id).catch(err => {
-                    console.error(`Error deleting user ${id}:`, err);
-                })
-            );
-            await Promise.all(deletePromises);
-            setSelectedUsers([]);
-            fetchUsers();
-        } catch (err: any) {
-            console.error('Error deleting selected users:', err);
-            setError('Failed to delete some users');
-        }
-    };
+            setError("");
 
-    const handleEdit = (user: UserResponse) => {
-        setCurrentUser(user);
-        setFormData({
-            email: user.email,
-            password: '',
-            role: user.role,
-        });
-        setIsEditModalOpen(true);
+            const results = await Promise.allSettled(
+                selectedUsers.map((id) => userApi.deleteUser(id)),
+            );
+
+            const failed = results.filter(
+                (result) => result.status === "rejected",
+            );
+
+            if (failed.length > 0) {
+                setError(`${failed.length} user(s) could not be deleted`);
+            }
+
+            setSelectedUsers([]);
+            await loadData();
+        } catch {
+            setError("Unexpected error while deleting users");
+        }
     };
 
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.checked) {
-            setSelectedUsers(sortedUsers.map(u => u.id));
+            setSelectedUsers(sortedUsers.map((user) => user.id));
         } else {
             setSelectedUsers([]);
         }
     };
 
     const handleSelectUser = (id: number) => {
-        setSelectedUsers(prev =>
-            prev.includes(id) ? prev.filter(uid => uid !== id) : [...prev, id]
+        setSelectedUsers((prev) =>
+            prev.includes(id)
+                ? prev.filter((userId) => userId !== id)
+                : [...prev, id],
         );
     };
 
-    const handleCreateModalOpen = () => {
-        setError('');
-        setCreateError('');
-        setFormData({ email: '', password: '', role: 'ADMIN' });
+    const openCreateModal = () => {
+        setError("");
+        resetForm();
         setIsCreateModalOpen(true);
     };
 
-    const handleLogout = () => {
-        logout();
-        router.push('/login');
+    const closeCreateModal = () => {
+        setIsCreateModalOpen(false);
+        resetForm();
     };
 
-    const getRoleBadgeColor = (role: UserRole) => {
-        return role === 'SUPER_ADMIN'
-            ? 'bg-purple-100 text-purple-800'
-            : 'bg-blue-100 text-blue-800';
+    const closeEditModal = () => {
+        setIsEditModalOpen(false);
+        setCurrentUser(null);
+        resetForm();
     };
-
-    if (loading) {
-        return (
-            <ProtectedRoute>
-                <div className="min-h-screen flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-                </div>
-            </ProtectedRoute>
-        );
-    }
 
     return (
-        <ProtectedRoute>
-            {/* Header */}
-            <header className="fixed top-0 left-0 right-0 bg-white shadow-sm border-b z-50">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between items-center h-16">
-                        <div className="flex items-center">
-                            <div className="flex-shrink-0">
-                                <img
-                                    src="/logo_aiu.png"
-                                    alt="University Logo"
-                                    className="h-8 w-auto"
-                                    onError={(e) => {
-                                        e.currentTarget.style.display = 'none';
-                                        const fallback = document.createElement('div');
-                                        fallback.className = 'h-8 w-8 bg-blue-600 rounded-lg';
-                                        e.currentTarget.parentNode?.appendChild(fallback);
-                                    }}
-                                />
-                            </div>
-                            <div className="ml-3 flex items-center space-x-4">
-                                <h1 className="text-xl font-semibold text-gray-900">Users Management</h1>
-                                <button
-                                    onClick={() => router.push('/home')}
-                                    className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
-                                >
-                                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                                    </svg>
-                                    Back to Home
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex items-center space-x-4">
-                            <button
-                                onClick={handleLogout}
-                                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
-                            >
-                                Logout
-                            </button>
-                        </div>
+        <AppShell>
+            {checkingAccess ? (
+                <div className="flex min-h-[60vh] items-center justify-center">
+                    <div className="text-center">
+                        <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+                        <p className="mt-3 text-sm text-muted-foreground">
+                            Checking access...
+                        </p>
                     </div>
                 </div>
-            </header>
+            ) : (
+                <>
+                    <PageHeader
+                        eyebrow="Administration"
+                        title="Users"
+                        description="Manage administrator accounts and system access roles."
+                        actions={
+                            <Button onClick={openCreateModal}>
+                                <Plus className="h-4 w-4" />
+                                New user
+                            </Button>
+                        }
+                    />
 
-            {/* Main Content */}
-            <main className="pt-16 flex flex-col min-h-screen">
-                {/* Fixed Top Panel */}
-                <div className="bg-white border-b shadow-sm py-4 px-4 sm:px-6 lg:px-8 sticky top-16 z-40">
-                    <div className="max-w-7xl mx-auto">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                            <div className="flex-1">
-                                <div className="relative">
-                                    <input
-                                        type="text"
-                                        placeholder="Search users by email or role..."
+                    {error && (
+                        <Card className="mb-6 border-red-200 bg-red-50 text-red-800">
+                            <CardContent className="p-4 text-sm">
+                                {error}
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    <section className="grid gap-4 md:grid-cols-3">
+                        <Card className="glass-card">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                                <CardTitle className="text-sm font-medium text-muted-foreground">
+                                    Users
+                                </CardTitle>
+                                <Users className="h-4 w-4 text-blue-700" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-bold">
+                                    {users.length}
+                                </div>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                    Total accounts
+                                </p>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="glass-card">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                                <CardTitle className="text-sm font-medium text-muted-foreground">
+                                    Super admins
+                                </CardTitle>
+                                <ShieldCheck className="h-4 w-4 text-violet-700" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-bold">
+                                    {superAdminCount}
+                                </div>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                    Full access accounts
+                                </p>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="glass-card">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                                <CardTitle className="text-sm font-medium text-muted-foreground">
+                                    Selected
+                                </CardTitle>
+                                <Badge variant="secondary">Bulk</Badge>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-3xl font-bold">
+                                    {selectedUsers.length}
+                                </div>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                    Selected rows
+                                </p>
+                            </CardContent>
+                        </Card>
+                    </section>
+
+                    <Card className="glass-card mt-6">
+                        <CardHeader>
+                            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                <div className="relative w-full max-w-xl">
+                                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                    <Input
                                         value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                        onChange={(e) =>
+                                            setSearchQuery(e.target.value)
+                                        }
+                                        placeholder="Search by email, role or ID..."
+                                        className="h-11 rounded-xl pl-10 pr-4 shadow-sm"
                                     />
-                                    <svg className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                    </svg>
                                 </div>
-                            </div>
-                            <div className="flex items-center space-x-4">
+
                                 {selectedUsers.length > 0 && (
-                                    <button
+                                    <Button
+                                        variant="destructive"
                                         onClick={handleDeleteSelected}
-                                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center"
                                     >
-                                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                        Delete Selected ({selectedUsers.length})
-                                    </button>
+                                        <Trash2 className="h-4 w-4" />
+                                        Delete selected ({selectedUsers.length})
+                                    </Button>
                                 )}
-                                <button
-                                    onClick={handleCreateModalOpen}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
-                                >
-                                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                    </svg>
-                                    Create New User
-                                </button>
                             </div>
-                        </div>
-                    </div>
-                </div>
+                        </CardHeader>
 
-                {/* Error Message */}
-                {error && (
-                    <div className="max-w-7xl mx-auto mt-4 px-4 sm:px-6 lg:px-8">
-                        <div className="rounded-lg bg-red-50 p-4 border border-red-200">
-                            <div className="flex items-center">
-                                <div className="flex-shrink-0">
-                                    <svg className="h-5 w-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 20 20">
-                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                                    </svg>
-                                </div>
-                                <div className="ml-3">
-                                    <p className="text-sm text-red-700">{error}</p>
-                                </div>
-                                <div className="ml-auto pl-3">
-                                    <button
-                                        onClick={() => setError('')}
-                                        className="text-red-700 hover:text-red-900"
-                                    >
-                                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Users List */}
-                <div className="flex-1">
-                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 h-full">
-                        {sortedUsers.length === 0 ? (
-                            <div className="text-center py-12 h-full flex flex-col items-center justify-center">
-                                <div className="text-gray-400 mb-4 text-lg">No users found</div>
-                            </div>
-                        ) : (
-                            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden h-full flex flex-col">
-                                {/* Fixed Header */}
-                                <div className="border-b border-gray-200 bg-gray-50 px-6 py-3 flex-shrink-0">
-                                    <div className="flex items-center">
-                                        {/* Checkbox column - fixed width */}
-                                        <div className="flex items-center w-12 pl-2">
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedUsers.length === sortedUsers.length && sortedUsers.length > 0}
-                                                onChange={handleSelectAll}
-                                                className="h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                                                title="Select All"
+                        <CardContent>
+                            {loading ? (
+                                <div className="space-y-3">
+                                    {Array.from({ length: 6 }).map(
+                                        (_, index) => (
+                                            <Skeleton
+                                                key={index}
+                                                className="h-14 w-full"
                                             />
-                                        </div>
-                                        {/* Grid for header columns */}
-                                        <div className="grid grid-cols-12 flex-1 gap-2">
-                                            <div
-                                                className="col-span-6 text-sm font-medium text-gray-700 pl-2 cursor-pointer flex items-center hover:text-blue-600"
-                                                onClick={() => handleSort('email')}
-                                            >
-                                                Email
-                                                {getSortIcon('email')}
-                                            </div>
-                                            <div
-                                                className="col-span-3 text-sm font-medium text-gray-700 cursor-pointer flex items-center hover:text-blue-600"
-                                                onClick={() => handleSort('role')}
-                                            >
-                                                Role
-                                                {getSortIcon('role')}
-                                            </div>
-                                            <div className="col-span-3 text-sm font-medium text-gray-700 text-right pr-4">
-                                                Actions
-                                            </div>
-                                        </div>
-                                    </div>
+                                        ),
+                                    )}
                                 </div>
+                            ) : sortedUsers.length === 0 ? (
+                                <EmptyState
+                                    title="No users found"
+                                    description="Create a user or change the search query."
+                                    actionLabel="New user"
+                                    onAction={openCreateModal}
+                                />
+                            ) : (
+                                <div className="custom-scrollbar overflow-x-auto">
+                                    <table className="w-full min-w-[850px] text-sm">
+                                        <thead>
+                                        <tr className="border-b text-left">
+                                            <th className="w-12 py-3">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={
+                                                        selectedUsers.length ===
+                                                        sortedUsers.length &&
+                                                        sortedUsers.length > 0
+                                                    }
+                                                    onChange={handleSelectAll}
+                                                    className="h-4 w-4 rounded border-gray-300"
+                                                />
+                                            </th>
+                                            <th className="py-3">
+                                                {getSortLabel("email", "Email")}
+                                            </th>
+                                            <th className="py-3">
+                                                {getSortLabel("role", "Role")}
+                                            </th>
+                                            <th className="py-3">ID</th>
+                                            <th className="py-3 text-right">
+                                                Actions
+                                            </th>
+                                        </tr>
+                                        </thead>
 
-                                {/* Scrollable Rows */}
-                                <div
-                                    ref={listRef}
-                                    className="flex-1 overflow-y-auto custom-scrollbar"
-                                    style={{ maxHeight: 'calc(100vh - 230px)' }}
-                                >
-                                    {sortedUsers.map((user) => (
-                                        <div key={user.id} className="px-6 py-4 hover:bg-gray-50 border-b border-gray-100 last:border-b-0">
-                                            <div className="flex items-center">
-                                                {/* Checkbox column - fixed width */}
-                                                <div className="flex items-center w-12 pl-2">
+                                        <tbody>
+                                        {sortedUsers.map((user) => (
+                                            <tr
+                                                key={user.id}
+                                                className="border-b last:border-b-0 hover:bg-accent/50"
+                                            >
+                                                <td className="py-4">
                                                     <input
                                                         type="checkbox"
-                                                        checked={selectedUsers.includes(user.id)}
-                                                        onChange={() => handleSelectUser(user.id)}
-                                                        className="h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                                        checked={selectedUsers.includes(
+                                                            user.id,
+                                                        )}
+                                                        onChange={() =>
+                                                            handleSelectUser(
+                                                                user.id,
+                                                            )
+                                                        }
+                                                        className="h-4 w-4 rounded border-gray-300"
                                                     />
-                                                </div>
-                                                {/* Grid for row data */}
-                                                <div className="grid grid-cols-12 flex-1 gap-2 items-center">
-                                                    <div className="col-span-6 pl-2">
-                                                        <div className="font-medium text-gray-900 truncate" title={user.email}>
-                                                            {user.email}
-                                                        </div>
-                                                        <div className="text-sm text-gray-500">ID: {user.id}</div>
+                                                </td>
+
+                                                <td className="py-4">
+                                                    <div className="font-medium">
+                                                        {user.email}
                                                     </div>
-                                                    <div className="col-span-3">
-                                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleBadgeColor(user.role)}`}>
-                                                            {user.role}
-                                                        </span>
-                                                    </div>
-                                                    <div className="col-span-3 flex items-center space-x-2 pr-4 justify-end">
-                                                        <button
-                                                            onClick={() => handleEdit(user)}
-                                                            className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md flex items-center"
+                                                </td>
+
+                                                <td className="py-4">
+                                                    <Badge
+                                                        variant={
+                                                            user.role ===
+                                                            "SUPER_ADMIN"
+                                                                ? "warning"
+                                                                : "secondary"
+                                                        }
+                                                    >
+                                                        {user.role}
+                                                    </Badge>
+                                                </td>
+
+                                                <td className="py-4">
+                                                    <Badge variant="outline">
+                                                        #{user.id}
+                                                    </Badge>
+                                                </td>
+
+                                                <td className="py-4">
+                                                    <div className="flex justify-end gap-2">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon-sm"
+                                                            onClick={() =>
+                                                                handleEdit(user)
+                                                            }
+                                                            aria-label="Edit user"
                                                         >
-                                                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                                            </svg>
-                                                            Edit
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleDelete(user.id)}
-                                                            className="px-3 py-1.5 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md flex items-center"
+                                                            <Edit className="h-4 w-4" />
+                                                        </Button>
+
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon-sm"
+                                                            onClick={() =>
+                                                                handleDelete(user)
+                                                            }
+                                                            aria-label="Delete user"
+                                                            className="text-red-600 hover:bg-red-50 hover:text-red-700"
                                                         >
-                                                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                            </svg>
-                                                            Delete
-                                                        </button>
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </Button>
                                                     </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        </tbody>
+                                    </table>
                                 </div>
-                            </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {(isCreateModalOpen || isEditModalOpen) && (
+                        <UserModal
+                            title={
+                                isCreateModalOpen
+                                    ? "Create User"
+                                    : "Edit User"
+                            }
+                            mode={isCreateModalOpen ? "create" : "edit"}
+                            formData={formData}
+                            formErrors={formErrors}
+                            onChange={handleInputChange}
+                            onClose={
+                                isCreateModalOpen
+                                    ? closeCreateModal
+                                    : closeEditModal
+                            }
+                            onSubmit={
+                                isCreateModalOpen
+                                    ? handleCreateSubmit
+                                    : handleEditSubmit
+                            }
+                        />
+                    )}
+                </>
+            )}
+        </AppShell>
+    );
+}
+
+interface UserModalProps {
+    title: string;
+    mode: "create" | "edit";
+    formData: FormDataState;
+    formErrors: FormErrors;
+    onClose: () => void;
+    onSubmit: (e: React.FormEvent) => void;
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
+}
+
+function UserModal({
+                       title,
+                       mode,
+                       formData,
+                       formErrors,
+                       onClose,
+                       onSubmit,
+                       onChange,
+                   }: UserModalProps) {
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+            <div className="glass-card w-full max-w-lg rounded-2xl bg-card p-6 shadow-2xl">
+                <div className="mb-6 flex items-start justify-between gap-4">
+                    <div>
+                        <h3 className="text-lg font-semibold">{title}</h3>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {mode === "create"
+                                ? "Create a new administrator account."
+                                : "Update account details. Leave password empty to keep the old one."}
+                        </p>
+                    </div>
+
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={onClose}
+                    >
+                        ✕
+                    </Button>
+                </div>
+
+                <form onSubmit={onSubmit} className="space-y-4">
+                    <div>
+                        <label className="mb-2 block text-sm font-medium">
+                            Email
+                        </label>
+
+                        <Input
+                            type="email"
+                            name="email"
+                            value={formData.email}
+                            onChange={onChange}
+                            placeholder="admin@example.com"
+                            required
+                            className={
+                                formErrors.email
+                                    ? "border-red-300 focus-visible:ring-red-400"
+                                    : undefined
+                            }
+                        />
+
+                        {formErrors.email && (
+                            <p className="mt-1.5 text-sm text-red-600">
+                                {formErrors.email}
+                            </p>
                         )}
                     </div>
-                </div>
-            </main>
 
-            {/* Create Modal */}
-            {isCreateModalOpen && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md transform transition-all">
-                        <div className="p-6">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-lg font-semibold text-gray-900">Create New User</h3>
-                                <button
-                                    onClick={() => setIsCreateModalOpen(false)}
-                                    className="text-gray-400 hover:text-gray-500 transition-colors"
-                                >
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-                            <form onSubmit={handleCreateSubmit}>
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Email
-                                        </label>
-                                        <input
-                                            ref={emailInputRef}
-                                            type="email"
-                                            name="email"
-                                            value={formData.email}
-                                            onChange={handleInputChange}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                            placeholder="user@example.com"
-                                            autoFocus
-                                            required
-                                        />
-                                        {createError && (
-                                            <p className="mt-1 text-xs !text-red-500">
-                                                {createError}
-                                            </p>
-                                        )}
-                                    </div>
+                    <div>
+                        <label className="mb-2 block text-sm font-medium">
+                            Password
+                        </label>
 
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Password
-                                        </label>
-                                        <input
-                                            ref={passwordInputRef}
-                                            type="password"
-                                            name="password"
-                                            value={formData.password}
-                                            onChange={handleInputChange}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                            required
-                                            placeholder="••••••••"
-                                        />
-                                        {formData.password && formData.password.length > 0 && formData.password.length < 8 && (
-                                            <p className="mt-1 text-xs !text-red-500">
-                                                Password must be at least 8 characters long
-                                            </p>
-                                        )}
-                                    </div>
+                        <Input
+                            type="password"
+                            name="password"
+                            value={formData.password}
+                            onChange={onChange}
+                            placeholder={
+                                mode === "create"
+                                    ? "Required for new user"
+                                    : "Leave empty to keep current password"
+                            }
+                            required={mode === "create"}
+                            className={
+                                formErrors.password
+                                    ? "border-red-300 focus-visible:ring-red-400"
+                                    : undefined
+                            }
+                        />
 
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Role
-                                        </label>
-                                        <select
-                                            ref={roleSelectRef}
-                                            name="role"
-                                            value={formData.role}
-                                            onChange={handleInputChange}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                            required
-                                        >
-                                            <option value="ADMIN">ADMIN</option>
-                                            <option value="SUPER_ADMIN">SUPER_ADMIN</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div className="mt-8 flex justify-end space-x-3">
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsCreateModalOpen(false)}
-                                        className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                                    >
-                                        Create User
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
+                        {formErrors.password && (
+                            <p className="mt-1.5 text-sm text-red-600">
+                                {formErrors.password}
+                            </p>
+                        )}
                     </div>
-                </div>
-            )}
 
-            {/* Edit Modal */}
-            {isEditModalOpen && currentUser && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md transform transition-all">
-                        <div className="p-6">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-lg font-semibold text-gray-900">Edit User</h3>
-                                <button
-                                    onClick={() => {
-                                        setIsEditModalOpen(false);
-                                        setCurrentUser(null);
-                                    }}
-                                    className="text-gray-400 hover:text-gray-500 transition-colors"
-                                >
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-                            <form onSubmit={handleEditSubmit}>
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Email
-                                        </label>
-                                        <input
-                                            ref={emailInputRef}
-                                            type="email"
-                                            name="email"
-                                            value={formData.email}
-                                            onChange={handleInputChange}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                            required
-                                            placeholder="user@example.com"
-                                            autoFocus
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Password (leave blank to keep current)
-                                        </label>
-                                        <input
-                                            ref={passwordInputRef}
-                                            type="password"
-                                            name="password"
-                                            value={formData.password}
-                                            onChange={handleInputChange}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                            placeholder="New password"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Role
-                                        </label>
-                                        <select
-                                            ref={roleSelectRef}
-                                            name="role"
-                                            value={formData.role}
-                                            onChange={handleInputChange}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                            required
-                                        >
-                                            <option value="ADMIN">ADMIN</option>
-                                            <option value="SUPER_ADMIN">SUPER_ADMIN</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div className="mt-8 flex justify-end space-x-3">
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setIsEditModalOpen(false);
-                                            setCurrentUser(null);
-                                        }}
-                                        className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                                    >
-                                        Save Changes
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
+                    <div>
+                        <label className="mb-2 block text-sm font-medium">
+                            Role
+                        </label>
+
+                        <select
+                            name="role"
+                            value={formData.role}
+                            onChange={onChange}
+                            required
+                            className={`flex h-10 w-full rounded-lg border bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 ${
+                                formErrors.role
+                                    ? "border-red-300 focus-visible:ring-red-400"
+                                    : "border-input focus-visible:ring-ring"
+                            }`}
+                        >
+                            {USER_ROLES.map((role) => (
+                                <option key={role} value={role}>
+                                    {role}
+                                </option>
+                            ))}
+                        </select>
+
+                        {formErrors.role && (
+                            <p className="mt-1.5 text-sm text-red-600">
+                                {formErrors.role}
+                            </p>
+                        )}
                     </div>
-                </div>
-            )}
-        </ProtectedRoute>
+
+                    {formErrors.general && (
+                        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                            {formErrors.general}
+                        </div>
+                    )}
+
+                    <div className="flex justify-end gap-3 pt-2">
+                        <Button type="button" variant="outline" onClick={onClose}>
+                            Cancel
+                        </Button>
+                        <Button type="submit">Save</Button>
+                    </div>
+                </form>
+            </div>
+        </div>
     );
 }

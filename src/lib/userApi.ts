@@ -38,8 +38,8 @@ export const userApi = {
     },
 
     // Get user ID by email
-    getUserIdByEmail: async (email: string): Promise<{ id: number }> => {
-        const response = await apiClient.get<{ id: number }>(`/api/users/id-by-email?email=${encodeURIComponent(email)}`);
+    getUserIdByEmail: async (email: string): Promise<number> => {
+        const response = await apiClient.get<number>(`/api/users/id-by-email?email=${encodeURIComponent(email)}`,);
         return response.data;
-    }
+    },
 };
