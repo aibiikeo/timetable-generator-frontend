@@ -1,211 +1,270 @@
-// src/app/home/page.tsx
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import ProtectedRoute from '@/components/ProtectedRoute';
-import { useAuth, api, UserResponse } from '@/lib';
+import { useRouter } from "next/navigation";
+import {
+    AlertTriangle,
+    ArrowRight,
+    CalendarDays,
+    CheckCircle2,
+    ClipboardList,
+    Download,
+    FileSpreadsheet,
+    Play,
+    Plus,
+    Sparkles,
+} from "lucide-react";
+import { AppShell } from "@/components/layout/AppShell";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card";
 
-interface EntityCard {
-    id: string;
-    title: string;
-    description: string;
-    icon: string;
-    color: string;
-    endpoint: string;
-    count?: number;
-}
+const quickActions = [
+    {
+        title: "Open timetables",
+        description: "View and manage schedules",
+        href: "/timetables",
+        icon: CalendarDays,
+    },
+    {
+        title: "New timetable",
+        description: "Create schedule period",
+        href: "/timetables",
+        icon: Plus,
+    },
+    {
+        title: "Add assignment",
+        description: "Add teaching load",
+        href: "/timetables",
+        icon: ClipboardList,
+    },
+    {
+        title: "Generate",
+        description: "Run scheduling",
+        href: "/timetables",
+        icon: Sparkles,
+    },
+];
+
+const reviewItems = [
+    {
+        title: "Unplaced lessons",
+        value: "—",
+        description: "Lessons that were not placed after generation",
+        icon: AlertTriangle,
+        badge: "Check",
+        color: "border-amber-200 bg-amber-50/80 text-amber-800",
+    },
+    {
+        title: "Conflicts",
+        value: "—",
+        description: "Teacher, group, room or time conflicts",
+        icon: AlertTriangle,
+        badge: "Review",
+        color: "border-red-200 bg-red-50/80 text-red-800",
+    },
+    {
+        title: "Missing data",
+        value: "—",
+        description: "Assignments, rooms or time slots that need completion",
+        icon: ClipboardList,
+        badge: "Data",
+        color: "border-blue-200 bg-blue-50/80 text-blue-800",
+    },
+];
 
 export default function HomePage() {
-    const { logout } = useAuth();
     const router = useRouter();
-    const [loading, setLoading] = useState(false);
-    const [currentUser, setCurrentUser] = useState<UserResponse | null>(null);
-    const [loadingUser, setLoadingUser] = useState(true);
-
-    useEffect(() => {
-        const fetchCurrentUser = async () => {
-            try {
-                // Получаем всех пользователей и находим текущего по email из localStorage
-                const users = await api.getUsers();
-                const userEmail = localStorage.getItem('userEmail');
-
-                if (userEmail) {
-                    const foundUser = users.data.find(user => user.email === userEmail);
-                    if (foundUser) {
-                        setCurrentUser(foundUser);
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to fetch current user:', error);
-            } finally {
-                setLoadingUser(false);
-            }
-        };
-
-        fetchCurrentUser();
-    }, []);
-
-    // Сущности для Dashboard
-    const allEntities: EntityCard[] = [
-        { id: 'users', title: 'Users', description: 'Manage user accounts and permissions', icon: '👥', color: 'blue', endpoint: '/users' },
-        { id: 'timetables', title: 'Timetables', description: 'Create and manage timetables', icon: '📅', color: 'green', endpoint: '/timetables' },
-        { id: 'subjects', title: 'Subjects', description: 'Manage course subjects', icon: '📚', color: 'orange', endpoint: '/subjects' },
-        { id: 'groups', title: 'Study Groups', description: 'Manage student groups', icon: '👥', color: 'indigo', endpoint: '/groups' },
-        { id: 'teachers', title: 'Teachers', description: 'Manage teaching staff', icon: '👨‍🏫', color: 'purple', endpoint: '/teachers' },
-        { id: 'rooms', title: 'Rooms', description: 'Manage classrooms and labs', icon: '🏫', color: 'pink', endpoint: '/rooms' },
-        { id: 'majors', title: 'Majors', description: 'Manage majors and degrees', icon: '🎓', color: 'yellow', endpoint: '/majors' },
-        { id: 'departments', title: 'Departments', description: 'Manage departments', icon: '🏢', color: 'teal', endpoint: '/departments' },
-        { id: 'faculties', title: 'Faculties', description: 'Manage faculties and departments', icon: '🏛️', color: 'red', endpoint: '/faculties' },
-    ];
-
-    const entities = currentUser?.role === 'ADMIN'
-        ? allEntities.filter(entity => entity.id !== 'users')
-        : allEntities;
-
-    const quickActions = [
-        { id: 'create-timetable', title: 'Create New Timetable', description: 'Start a new timetable generation', endpoint: '/timetables/new' },
-        { id: 'view-current', title: 'View Current Timetable', description: 'Check published schedule', endpoint: '/timetables/current' },
-        { id: 'generate-lessons', title: 'Generate Lessons', description: 'Auto-generate lessons from assignments', endpoint: '/generation' },
-        { id: 'manage-assignments', title: 'Manage Assignments', description: 'Configure teaching assignments', endpoint: '/assignments' },
-        { id: 'add-teacher', title: 'Add New Teacher', description: 'Register teaching staff', endpoint: '/teachers/new' },
-        { id: 'room-availability', title: 'Room Availability', description: 'Check room schedules', endpoint: '/rooms/availability' },
-    ];
-
-    const handleLogout = () => {
-        console.log('[Logout] Initiating logout...');
-        logout();
-        router.push('/login');
-    };
-
-    const handleQuickAction = (endpoint: string) => {
-        router.push(endpoint);
-    };
 
     return (
-        <ProtectedRoute>
-            <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
-                {/* Header - Fixed при скролле */}
-                <header className="fixed top-0 left-0 right-0 bg-white shadow-sm border-b z-50">
-                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                        <div className="flex justify-between items-center h-16">
-                            <div className="flex items-center">
-                                <div className="flex-shrink-0">
-                                    <img
-                                        src="/logo_aiu.png"
-                                        alt="University Logo"
-                                        className="h-8 w-auto"
-                                        onError={(e) => {
-                                            e.currentTarget.style.display = 'none';
-                                            const fallback = document.createElement('div');
-                                            fallback.className = 'h-8 w-8 bg-blue-600 rounded-lg';
-                                            e.currentTarget.parentNode?.appendChild(fallback);
-                                        }}
-                                    />
+        <AppShell>
+            <PageHeader title="Dashboard" />
+
+            <section className="mt-6 grid items-start gap-6 xl:grid-cols-[1.4fr_0.9fr]">
+                <Card className="glass-card h-fit overflow-hidden">
+                    <CardHeader className="pb-4">
+                        <CardTitle>Current timetable</CardTitle>
+                    </CardHeader>
+
+                    <CardContent>
+                        <div className="grid gap-4 md:grid-cols-3">
+                            <div className="rounded-2xl border border-border bg-card p-5">
+                                <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-100 bg-blue-50 text-blue-700">
+                                    <ClipboardList className="h-5 w-5" />
                                 </div>
-                                <h1 className="ml-3 text-xl font-semibold text-gray-900">
-                                    Timetable Generator
-                                </h1>
+
+                                <div className="text-2xl font-bold">—</div>
+
+                                <div className="mt-1 text-sm text-muted-foreground">
+                                    Assignments
+                                </div>
                             </div>
 
-                            <div className="flex items-center space-x-4">
-                                {currentUser && (
-                                    <div className="text-sm text-gray-600">
-                                        <span className="font-medium">{currentUser.email}</span>
-                                        <span className="ml-2 px-2 py-1 text-xs rounded-full bg-gray-100">
-                                            {currentUser.role}
-                                        </span>
-                                    </div>
-                                )}
-                                <button
-                                    onClick={handleLogout}
-                                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
-                                >
-                                    Logout
-                                </button>
+                            <div className="rounded-2xl border border-border bg-card p-5">
+                                <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-100 bg-emerald-50 text-emerald-700">
+                                    <CheckCircle2 className="h-5 w-5" />
+                                </div>
+
+                                <div className="text-2xl font-bold">—</div>
+
+                                <div className="mt-1 text-sm text-muted-foreground">
+                                    Placed lessons
+                                </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-border bg-card p-5">
+                                <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl border border-amber-100 bg-amber-50 text-amber-700">
+                                    <AlertTriangle className="h-5 w-5" />
+                                </div>
+
+                                <div className="text-2xl font-bold">—</div>
+
+                                <div className="mt-1 text-sm text-muted-foreground">
+                                    Needs review
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </header>
 
-                {/* Main Content - с отступом для фиксированного header */}
-                <main className="pt-16">
-                    <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            {/* Dashboard — 2/3 ширины */}
-                            <div className="lg:col-span-2">
-                                <div className="mb-4 sticky top-16">
-                                    <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
-                                </div>
+                        <div className="mt-6 flex flex-wrap gap-2">
+                            <Button
+                                variant="outline"
+                                onClick={() => router.push("/timetables")}
+                            >
+                                <ClipboardList className="h-4 w-4" />
+                                Assignments
+                            </Button>
 
-                                <div className="max-h-[calc(100vh-12rem)] overflow-y-auto pr-2 custom-scrollbar scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent hover:scrollbar-thumb-gray-400">
-                                    {loading || loadingUser ? (
-                                        <div className="flex justify-center items-center h-64">
-                                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                            <Button
+                                variant="outline"
+                                onClick={() => router.push("/timetables")}
+                            >
+                                <Play className="h-4 w-4" />
+                                Generate
+                            </Button>
+
+                            <Button
+                                variant="outline"
+                                onClick={() => router.push("/timetables")}
+                            >
+                                <FileSpreadsheet className="h-4 w-4" />
+                                Review grid
+                            </Button>
+
+                            <Button
+                                variant="outline"
+                                onClick={() => router.push("/timetables")}
+                            >
+                                <Download className="h-4 w-4" />
+                                Export
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card className="glass-card h-[440px] overflow-hidden">
+                    <CardHeader className="pb-4">
+                        <CardTitle>Quick actions</CardTitle>
+                    </CardHeader>
+
+                    <CardContent className="custom-scrollbar h-[calc(440px-80px)] overflow-y-auto pr-3">
+                        <div className="space-y-3">
+                            {quickActions.map((action) => {
+                                const Icon = action.icon;
+
+                                return (
+                                    <button
+                                        key={action.title}
+                                        onClick={() => router.push(action.href)}
+                                        className="group flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
+                                    >
+                                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-blue-100 bg-blue-50 text-blue-700">
+                                            <Icon className="h-5 w-5" />
                                         </div>
-                                    ) : (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-4">
-                                            {entities.map((entity) => (
-                                                <Link
-                                                    key={entity.id}
-                                                    href={entity.endpoint}
-                                                    className="bg-white overflow-hidden shadow-sm rounded-xl border border-gray-200 hover:shadow-md transition-shadow hover:border-blue-300"
-                                                >
-                                                    <div className="p-6">
-                                                        <div className="flex items-start">
-                                                            <div className={`flex-shrink-0 h-12 w-12 rounded-lg flex items-center justify-center ${
-                                                                entity.color === 'blue' ? 'bg-blue-100' :
-                                                                    entity.color === 'green' ? 'bg-green-100' :
-                                                                        entity.color === 'purple' ? 'bg-purple-100' :
-                                                                            entity.color === 'orange' ? 'bg-orange-100' :
-                                                                                entity.color === 'indigo' ? 'bg-indigo-100' :
-                                                                                    entity.color === 'pink' ? 'bg-pink-100' :
-                                                                                        entity.color === 'teal' ? 'bg-teal-100' :
-                                                                                            'bg-red-100'
-                                                            }`}>
-                                                                <span className="text-xl">{entity.icon}</span>
-                                                            </div>
-                                                            <div className="ml-4">
-                                                                <h3 className="text-lg font-semibold text-gray-900">{entity.title}</h3>
-                                                                <p className="text-sm text-gray-500 mt-1">{entity.description}</p>
-                                                                <div className="mt-3">
-                                                                    <span className="text-xs font-medium text-blue-600 hover:text-blue-800">
-                                                                        View & Manage →
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </Link>
-                                            ))}
+
+                                        <div className="min-w-0 flex-1">
+                                            <div className="font-medium text-foreground">
+                                                {action.title}
+                                            </div>
+                                            <div className="mt-1 text-xs text-muted-foreground">
+                                                {action.description}
+                                            </div>
                                         </div>
-                                    )}
-                                </div>
+
+                                        <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </CardContent>
+                </Card>
+            </section>
+
+            <section className="mt-6">
+                <Card className="glass-card">
+                    <CardHeader>
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <CardTitle>Needs review</CardTitle>
+                                <CardDescription>
+                                    Items that may require attention after generation.
+                                </CardDescription>
                             </div>
 
-                            {/* Quick Actions — 1/3 ширины */}
-                            <div className="lg:col-span-1">
-                                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 h-full">
-                                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-                                    <div className="space-y-4 max-h-[calc(100vh-15rem)] overflow-y-auto pr-2 custom-scrollbar scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent hover:scrollbar-thumb-gray-400">
-                                        {quickActions.map((action) => (
-                                            <button
-                                                key={action.id}
-                                                onClick={() => handleQuickAction(action.endpoint)}
-                                                className="w-full p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all text-left bg-white hover:bg-blue-50"
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => router.push("/timetables")}
+                            >
+                                Open review
+                                <ArrowRight className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    </CardHeader>
+
+                    <CardContent>
+                        <div className="grid gap-4 md:grid-cols-3">
+                            {reviewItems.map((item) => {
+                                const Icon = item.icon;
+
+                                return (
+                                    <div
+                                        key={item.title}
+                                        className="rounded-2xl border border-border bg-card p-5"
+                                    >
+                                        <div className="mb-4 flex items-start justify-between gap-3">
+                                            <div
+                                                className={`flex h-11 w-11 items-center justify-center rounded-2xl border ${item.color}`}
                                             >
-                                                <div className="font-medium text-gray-900">{action.title}</div>
-                                                <div className="text-sm text-gray-500 mt-1">{action.description}</div>
-                                            </button>
-                                        ))}
+                                                <Icon className="h-5 w-5" />
+                                            </div>
+
+                                            <Badge variant="secondary">{item.badge}</Badge>
+                                        </div>
+
+                                        <div className="text-2xl font-bold">
+                                            {item.value}
+                                        </div>
+
+                                        <div className="mt-1 font-medium text-foreground">
+                                            {item.title}
+                                        </div>
+
+                                        <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                                            {item.description}
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
+                                );
+                            })}
                         </div>
-                    </div>
-                </main>
-            </div>
-        </ProtectedRoute>
+                    </CardContent>
+                </Card>
+            </section>
+        </AppShell>
     );
 }
