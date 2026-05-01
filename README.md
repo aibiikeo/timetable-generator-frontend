@@ -1,36 +1,133 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Timetable Generator
 
-## Getting Started
+Constraint-Based University Timetable Scheduling System.
 
-First, run the development server:
+This project helps university administrators create academic data, configure teaching assignments, generate class timetables, publish schedules, and export results to PDF or Excel.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Overview
+
+The system consists of two parts:
+
+- Backend REST API for authentication, academic data management, timetable generation, and scheduling logic.
+- Frontend web application for administrators to manage data and work with generated timetables.
+
+## Main Features
+
+- Login with JWT authentication
+- Role-based access control
+- Admin and Super Admin roles
+- Dashboard with system overview
+- Academic structure management:
+    - Faculties
+    - Departments
+    - Majors
+    - Groups
+- Resource management:
+    - Teachers
+    - Subjects
+    - Rooms
+    - Time slots
+    - Lunch breaks
+- Timetable creation
+- Assignment management
+- Constraint-based timetable generation
+- Manual placement for lessons that cannot be generated automatically
+- Published timetable view
+- Export timetable to PDF and Excel
+- Responsive sidebar and topbar layout
+
+## Tech Stack
+
+### Frontend
+
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- Axios
+- jsPDF
+- jspdf-autotable
+- xlsx / xlsx-js-style
+
+### Backend
+
+- Java
+- Spring Boot
+- Spring Security
+- JWT
+- Spring Data JPA
+- Maven
+- REST API
+
+## Project Structure
+
+```txt
+timetable-generator/
+├── timetable-generator-backend/
+│   ├── src/main/java/
+│   │   └── com/example/timetablegenerator/
+│   │       ├── config/
+│   │       ├── controllers/
+│   │       ├── domain/
+│   │       ├── exceptions/
+│   │       ├── generation/
+│   │       ├── mappers/
+│   │       ├── repositories/
+│   │       ├── services/
+│   │       └── utils/
+│   ├── src/main/resources/
+│   └── pom.xml
+│
+└── timetable-generator-frontend/
+    ├── src/app/
+    │   ├── login/
+    │   ├── home/
+    │   ├── faculties/
+    │   ├── departments/
+    │   ├── majors/
+    │   ├── groups/
+    │   ├── teachers/
+    │   ├── subjects/
+    │   ├── rooms/
+    │   ├── users/
+    │   ├── lessons/
+    │   └── timetables/
+    ├── src/components/
+    ├── src/lib/
+    └── package.json
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Screenshots
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Login
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+![Login](screenshots/login.png)
 
-## Learn More
+### Dashboard
 
-To learn more about Next.js, take a look at the following resources:
+![Dashboard](screenshots/dashboard.png)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Majors Management
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+![Academic Management](screenshots/majors-management.png)
 
-## Deploy on Vercel
+### Users Management
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+![Users Management](screenshots/users.png)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Timetables List
+
+![Timetables List](screenshots/timetables-list.png)
+
+### Timetable Grid
+
+![Timetable Grid](screenshots/timetable-grid.png)
+
+### Assignment Form
+
+![Assignment Form](screenshots/assignment-form.png)
+
+### Export Result
+
+![Export Result](screenshots/export-result-pdf.png)
+![Export Result](screenshots/export-result-excel.png)
