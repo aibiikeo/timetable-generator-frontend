@@ -1,312 +1,578 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import {
+import { useMemo, useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import type {
+    AssignmentResponse,
+    RoomResponse,
+    StudyGroupResponse,
     SubjectResponse,
     TeacherResponse,
-    StudyGroupResponse,
-    RoomResponse,
-    Shift,
-    RoomType,
-    DayOfWeek,
-    TimeSlot
-} from '@/lib/types';
-import { generateSplittingOptions } from '@/lib/splitting';
-import SplittingOptions from './SplittingOptions';
-import ExceptionsPicker from './ExceptionsPicker';
+    TimeSlot,
+} from "@/lib/types";
 
-interface AssignmentFormData {
-    subjectId: number;
-    teacherId: number;
-    groupIds: number[];
-    hoursPerWeek: number;
-    shift?: Shift;
-    roomTypeRequired?: RoomType;
-    specificRoomId?: number;
-    hoursSplitting: string;
-    excludedDays: DayOfWeek[];
-    excludedTimeSlots: { day: DayOfWeek; startTime: string; endTime: string }[];
-    preferredDays?: DayOfWeek[];
-}
+import ExceptionsPicker, { TimeException } from "./ExceptionsPicker";
+import SplittingOptions, { SplittingConfig } from "./SplittingOptions";
 
-type SplittingMode = 'auto' | 'manual';
-
-interface Props {
+interface AssignmentFormProps {
+    initialAssignment?: AssignmentResponse | null;
     subjects: SubjectResponse[];
     teachers: TeacherResponse[];
     groups: StudyGroupResponse[];
     rooms: RoomResponse[];
     timeSlots: TimeSlot[];
-    onSave: (data: AssignmentFormData) => void;
+    saving?: boolean;
+    onSave: (data: unknown) => void | Promise<void>;
     onCancel: () => void;
-    initialData?: AssignmentFormData;
+}
+
+interface FormState {
+    subjectId: number;
+    teacherId: number;
+    groupIds: number[];
+    hoursPerWeek: number | string;
+    durationHours: number | string;
+    preferredRoomId: number;
+    roomTypeRequired: string;
+    shift: string;
+}
+
+const EMPTY_FORM: FormState = {
+    subjectId: 0,
+    teacherId: 0,
+    groupIds: [],
+    hoursPerWeek: 2,
+    durationHours: 2,
+    preferredRoomId: 0,
+    roomTypeRequired: "ANY",
+    shift: "MORNING",
+};
+
+const DEFAULT_SPLITTING: SplittingConfig = {
+    enabled: false,
+    minPartHours: 2,
+    maxPartHours: 2,
+    allowDifferentDays: true,
+};
+
+function getInitialFormState(initialAssignment?: AssignmentResponse | null): FormState {
+    if (!initialAssignment) return EMPTY_FORM;
+
+    const unsafe = initialAssignment as unknown as {
+        subjectId?: number;
+        teacherId?: number;
+        groupIds?: number[];
+        hoursPerWeek?: number;
+        durationHours?: number;
+        preferredRoomId?: number;
+        roomTypeRequired?: string;
+        roomType?: string;
+        shift?: string;
+    };
+
+    return {
+        subjectId: unsafe.subjectId ?? 0,
+        teacherId: unsafe.teacherId ?? 0,
+        groupIds: unsafe.groupIds ?? [],
+        hoursPerWeek: unsafe.hoursPerWeek ?? 2,
+        durationHours:
+            unsafe.durationHours && unsafe.durationHours >= 2
+                ? unsafe.durationHours
+                : 2,
+        preferredRoomId: unsafe.preferredRoomId ?? 0,
+        roomTypeRequired: unsafe.roomTypeRequired ?? unsafe.roomType ?? "ANY",
+        shift: unsafe.shift ?? "MORNING",
+    };
 }
 
 export default function AssignmentForm({
+                                           initialAssignment,
                                            subjects,
                                            teachers,
                                            groups,
                                            rooms,
                                            timeSlots,
+                                           saving = false,
                                            onSave,
                                            onCancel,
-                                           initialData
-                                       }: Props) {
-    const [formData, setFormData] = useState<AssignmentFormData>(
-        initialData || {
-            subjectId: 0,
-            teacherId: 0,
-            groupIds: [],
-            hoursPerWeek: 4,
-            shift: 'ANY',
-            roomTypeRequired: 'ANY',
-            specificRoomId: undefined,
-            hoursSplitting: '',
-            excludedDays: [],
-            excludedTimeSlots: [],
-            preferredDays: [],
-        }
+                                       }: AssignmentFormProps) {
+    const [formData, setFormData] = useState<FormState>(() =>
+        getInitialFormState(initialAssignment),
     );
 
-    const [splittingOptions, setSplittingOptions] = useState<string[]>([]);
-    const [splittingMode, setSplittingMode] = useState<SplittingMode>('auto');
-    const [manualSplittingInput, setManualSplittingInput] = useState('');
+    const [exceptions, setExceptions] = useState<TimeException[]>([]);
+    const [splitting, setSplitting] =
+        useState<SplittingConfig>(DEFAULT_SPLITTING);
 
-    useEffect(() => {
-        if (formData.hoursPerWeek > 0) {
-            const options = generateSplittingOptions(formData.hoursPerWeek);
-            setSplittingOptions(options);
+    const [error, setError] = useState("");
 
-            if (
-                splittingMode === 'auto' &&
-                formData.hoursSplitting &&
-                !options.includes(formData.hoursSplitting)
-            ) {
-                setFormData(prev => ({ ...prev, hoursSplitting: '' }));
-            }
-        } else {
-            setSplittingOptions([]);
-            setFormData(prev => ({ ...prev, hoursSplitting: '' }));
-            setManualSplittingInput('');
-        }
-    }, [formData.hoursPerWeek, splittingMode]);
+    const selectedSubject = useMemo(() => {
+        return subjects.find((subject) => subject.id === formData.subjectId);
+    }, [subjects, formData.subjectId]);
 
-    useEffect(() => {
-        // Если есть initialData, определяем режим по значению.
-        if (!initialData) return;
-
-        const current = initialData.hoursSplitting?.trim() ?? '';
-
-        if (!current) {
-            setSplittingMode('auto');
-            setManualSplittingInput('');
-            return;
+    const orderedGroups = useMemo(() => {
+        if (!selectedSubject?.majorId) {
+            return [...groups].sort((a, b) => a.name.localeCompare(b.name));
         }
 
-        if (generateSplittingOptions(initialData.hoursPerWeek).includes(current)) {
-            setSplittingMode('auto');
-            setManualSplittingInput('');
-        } else {
-            setSplittingMode('manual');
-            setManualSplittingInput(current);
-        }
-    }, [initialData]);
+        const subjectMajorId = selectedSubject.majorId;
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
+        return [...groups].sort((a, b) => {
+            const aMatches = a.majorId === subjectMajorId;
+            const bMatches = b.majorId === subjectMajorId;
 
-        const normalizedHoursSplitting =
-            splittingMode === 'manual'
-                ? manualSplittingInput.trim()
-                : formData.hoursSplitting.trim();
+            if (aMatches && !bMatches) return -1;
+            if (!aMatches && bMatches) return 1;
 
-        onSave({
-            ...formData,
-            hoursSplitting: normalizedHoursSplitting,
+            return a.name.localeCompare(b.name);
         });
+    }, [groups, selectedSubject]);
+
+    const selectedGroupsCount = formData.groupIds.length;
+    const allGroupsSelected =
+        orderedGroups.length > 0 &&
+        selectedGroupsCount === orderedGroups.length;
+
+    const handleChange = (
+        e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+    ) => {
+        const { name, value, type } = e.target;
+
+        setFormData((prev) => {
+            const nextValue =
+                type === "number" ||
+                name === "subjectId" ||
+                name === "teacherId" ||
+                name === "preferredRoomId"
+                    ? value === ""
+                        ? ""
+                        : Number(value)
+                    : value;
+
+            return {
+                ...prev,
+                [name]: nextValue,
+            };
+        });
+
+        setError("");
     };
 
-    const handleGroupToggle = (groupId: number) => {
-        setFormData(prev => ({
+    const handleToggleGroup = (groupId: number) => {
+        setFormData((prev) => ({
             ...prev,
             groupIds: prev.groupIds.includes(groupId)
-                ? prev.groupIds.filter(id => id !== groupId)
-                : [...prev.groupIds, groupId]
+                ? prev.groupIds.filter((id) => id !== groupId)
+                : [...prev.groupIds, groupId],
         }));
+
+        setError("");
     };
 
-    const handleSelectSuggestedSplitting = (val: string) => {
-        setSplittingMode('auto');
-        setFormData(prev => ({
+    const handleSelectAllGroups = () => {
+        const ids = orderedGroups.map((group) => group.id);
+
+        setFormData((prev) => ({
             ...prev,
-            hoursSplitting: val
+            groupIds: allGroupsSelected ? [] : ids,
         }));
+
+        setError("");
     };
 
-    const handleManualInputChange = (val: string) => {
-        setSplittingMode('manual');
-        setManualSplittingInput(val);
+    const validateForm = () => {
+        const hoursPerWeek = Number(formData.hoursPerWeek);
+        const durationHours = Number(formData.durationHours);
+
+        if (!formData.subjectId) {
+            setError("Please select a subject");
+            return false;
+        }
+
+        if (!formData.teacherId) {
+            setError("Please select a teacher");
+            return false;
+        }
+
+        if (formData.groupIds.length === 0) {
+            setError("Please select at least one group");
+            return false;
+        }
+
+        if (!Number.isFinite(hoursPerWeek) || hoursPerWeek < 2) {
+            setError("Hours per week must be at least 2 slots");
+            return false;
+        }
+
+        if (!Number.isFinite(durationHours) || durationHours < 2) {
+            setError(
+                "Generated lessons must take at least 2 slots. Use manual placement if you need 1 slot.",
+            );
+            return false;
+        }
+
+        if (durationHours > hoursPerWeek) {
+            setError("Lesson duration cannot be greater than hours per week");
+            return false;
+        }
+
+        if (!formData.roomTypeRequired) {
+            setError("Please select required room type");
+            return false;
+        }
+
+        if (!formData.shift) {
+            setError("Please select shift");
+            return false;
+        }
+
+        if (splitting.enabled && Number(splitting.minPartHours) < 2) {
+            setError(
+                "Generated split parts must take at least 2 slots. One-slot lessons are only for manual placement.",
+            );
+            return false;
+        }
+
+        if (splitting.enabled && Number(splitting.maxPartHours) < 2) {
+            setError("Maximum split hours must be at least 2 slots");
+            return false;
+        }
+
+        if (
+            splitting.enabled &&
+            Number(splitting.minPartHours) > Number(splitting.maxPartHours)
+        ) {
+            setError("Minimum split hours cannot be greater than maximum split hours");
+            return false;
+        }
+
+        if (
+            splitting.enabled &&
+            Number(splitting.maxPartHours) > hoursPerWeek
+        ) {
+            setError("Maximum split hours cannot be greater than hours per week");
+            return false;
+        }
+
+        return true;
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+
+        if (!validateForm()) return;
+
+        const payload = {
+            subjectId: Number(formData.subjectId),
+            teacherId: Number(formData.teacherId),
+            groupIds: formData.groupIds,
+            hoursPerWeek: Number(formData.hoursPerWeek),
+            durationHours: Number(formData.durationHours),
+
+            preferredRoomId:
+                Number(formData.preferredRoomId) > 0
+                    ? Number(formData.preferredRoomId)
+                    : undefined,
+
+            roomTypeRequired: formData.roomTypeRequired,
+            shift: formData.shift,
+
+            unavailableSlots: exceptions,
+
+            splittingOptions: splitting.enabled
+                ? {
+                    minPartHours: Number(splitting.minPartHours),
+                    maxPartHours: Number(splitting.maxPartHours),
+                    allowDifferentDays: splitting.allowDifferentDays,
+                }
+                : undefined,
+        };
+
+        await onSave(payload);
     };
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-                <label className="block text-sm font-medium text-gray-700">Subject *</label>
+                <label className="mb-2 block text-sm font-medium">
+                    Subject
+                </label>
+
                 <select
+                    name="subjectId"
                     value={formData.subjectId}
-                    onChange={e => setFormData({ ...formData, subjectId: Number(e.target.value) })}
+                    onChange={handleChange}
                     required
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                    <option value="">Select subject</option>
-                    {subjects.map(s => (
-                        <option key={s.id} value={s.id}>
-                            {s.name}
+                    <option value={0}>Select subject</option>
+
+                    {subjects.map((subject) => (
+                        <option key={subject.id} value={subject.id}>
+                            {subject.code} — {subject.name}
                         </option>
                     ))}
                 </select>
+
+                {selectedSubject && (
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                        Major: {selectedSubject.majorName || "Unknown"}
+                    </p>
+                )}
             </div>
 
             <div>
-                <label className="block text-sm font-medium text-gray-700">Teacher *</label>
+                <label className="mb-2 block text-sm font-medium">
+                    Teacher
+                </label>
+
                 <select
+                    name="teacherId"
                     value={formData.teacherId}
-                    onChange={e => setFormData({ ...formData, teacherId: Number(e.target.value) })}
+                    onChange={handleChange}
                     required
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                    <option value="">Select teacher</option>
-                    {teachers.map(t => (
-                        <option key={t.id} value={t.id}>
-                            {t.fullName}
+                    <option value={0}>Select teacher</option>
+
+                    {teachers.map((teacher) => (
+                        <option key={teacher.id} value={teacher.id}>
+                            {teacher.fullName}
                         </option>
                     ))}
                 </select>
             </div>
 
             <div>
-                <label className="block text-sm font-medium text-gray-700">Groups *</label>
-                <div className="mt-2 max-h-40 overflow-y-auto border border-gray-200 rounded-md p-2">
-                    {groups.map(group => (
-                        <label key={group.id} className="flex items-center space-x-2">
-                            <input
-                                type="checkbox"
-                                checked={formData.groupIds.includes(group.id)}
-                                onChange={() => handleGroupToggle(group.id)}
-                                className="h-4 w-4 text-blue-600"
-                            />
-                            <span className="text-sm">{group.name}</span>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                    <div>
+                        <label className="block text-sm font-medium">
+                            Groups
                         </label>
-                    ))}
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            {selectedGroupsCount} selected
+                            {selectedSubject?.majorName
+                                ? ` · ${selectedSubject.majorName} groups are shown first`
+                                : ""}
+                        </p>
+                    </div>
+
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleSelectAllGroups}
+                        disabled={orderedGroups.length === 0}
+                    >
+                        {allGroupsSelected ? "Clear" : "Select all"}
+                    </Button>
+                </div>
+
+                <div className="custom-scrollbar max-h-56 overflow-y-auto rounded-2xl border border-border p-3">
+                    {orderedGroups.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                            No groups available.
+                        </p>
+                    ) : (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                            {orderedGroups.map((group) => {
+                                const checked = formData.groupIds.includes(group.id);
+                                const isRecommended =
+                                    Boolean(selectedSubject?.majorId) &&
+                                    group.majorId === selectedSubject?.majorId;
+
+                                return (
+                                    <label
+                                        key={group.id}
+                                        className={
+                                            isRecommended
+                                                ? "flex cursor-pointer items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm transition-colors hover:bg-blue-100"
+                                                : "flex cursor-pointer items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm transition-colors hover:bg-accent"
+                                        }
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            onChange={() => handleToggleGroup(group.id)}
+                                            className="h-4 w-4 rounded border-gray-300"
+                                        />
+
+                                        <span className="font-medium">
+                                            {group.name}
+                                        </span>
+
+                                        <span className="text-xs text-muted-foreground">
+                                            {group.studentCount}
+                                        </span>
+
+                                        {isRecommended && (
+                                            <Badge
+                                                variant="info"
+                                                className="ml-auto shrink-0"
+                                            >
+                                                Major
+                                            </Badge>
+                                        )}
+                                    </label>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {formData.groupIds.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                        {formData.groupIds.map((groupId) => {
+                            const group = groups.find((item) => item.id === groupId);
+
+                            return (
+                                <Badge key={groupId} variant="outline">
+                                    {group?.name || `#${groupId}`}
+                                </Badge>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                    <label className="mb-2 block text-sm font-medium">
+                        Hours per week
+                    </label>
+
+                    <Input
+                        type="number"
+                        name="hoursPerWeek"
+                        min={2}
+                        value={formData.hoursPerWeek}
+                        onChange={handleChange}
+                        required
+                    />
+
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                        Total generated slots per week.
+                    </p>
+                </div>
+
+                <div>
+                    <label className="mb-2 block text-sm font-medium">
+                        Lesson duration
+                    </label>
+
+                    <Input
+                        type="number"
+                        name="durationHours"
+                        min={2}
+                        value={formData.durationHours}
+                        onChange={handleChange}
+                        required
+                    />
+
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                        Generated lessons use at least 2 slots.
+                    </p>
                 </div>
             </div>
 
-            <div>
-                <label className="block text-sm font-medium text-gray-700">Hours per week *</label>
-                <input
-                    type="number"
-                    min="2"
-                    max="30"
-                    value={formData.hoursPerWeek}
-                    onChange={e =>
-                        setFormData({ ...formData, hoursPerWeek: Number(e.target.value) })
-                    }
-                    required
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                />
-            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                    <label className="mb-2 block text-sm font-medium">
+                        Required room type
+                    </label>
 
-            <div>
-                <label className="block text-sm font-medium text-gray-700">Shift</label>
-                <select
-                    value={formData.shift || ''}
-                    onChange={e =>
-                        setFormData({
-                            ...formData,
-                            shift: (e.target.value as Shift) || undefined
-                        })
-                    }
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                >
-                    <option value="">Any</option>
-                    <option value="MORNING">Morning</option>
-                    <option value="AFTERNOON">Afternoon</option>
-                </select>
-            </div>
+                    <select
+                        name="roomTypeRequired"
+                        value={formData.roomTypeRequired}
+                        onChange={handleChange}
+                        required
+                        className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                        <option value="ANY">Any</option>
+                        <option value="CLASSROOM">Classroom</option>
+                        <option value="COMPUTER_LAB">Computer lab</option>
+                    </select>
+                </div>
 
-            <div>
-                <label className="block text-sm font-medium text-gray-700">Required room type</label>
-                <select
-                    value={formData.roomTypeRequired || ''}
-                    onChange={e =>
-                        setFormData({
-                            ...formData,
-                            roomTypeRequired: (e.target.value as RoomType) || undefined
-                        })
-                    }
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                >
-                    <option value="">Any</option>
-                    <option value="CLASSROOM">Classroom</option>
-                    <option value="COMPUTER_LAB">Computer Lab</option>
-                </select>
-            </div>
+                <div>
+                    <label className="mb-2 block text-sm font-medium">
+                        Shift
+                    </label>
 
-            <div>
-                <label className="block text-sm font-medium text-gray-700">Specific room (optional)</label>
-                <select
-                    value={formData.specificRoomId || ''}
-                    onChange={e =>
-                        setFormData({
-                            ...formData,
-                            specificRoomId: Number(e.target.value) || undefined
-                        })
-                    }
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                >
-                    <option value="">Auto-assign</option>
-                    {rooms.map(r => (
-                        <option key={r.id} value={r.id}>
-                            {r.name}
-                        </option>
-                    ))}
-                </select>
+                    <select
+                        name="shift"
+                        value={formData.shift}
+                        onChange={handleChange}
+                        required
+                        className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                        <option value="MORNING">Morning</option>
+                        <option value="AFTERNOON">Afternoon</option>
+                        <option value="EVENING">Evening</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label className="mb-2 block text-sm font-medium">
+                        Preferred room
+                    </label>
+
+                    <select
+                        name="preferredRoomId"
+                        value={formData.preferredRoomId}
+                        onChange={handleChange}
+                        className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                        <option value={0}>No preference</option>
+
+                        {rooms.map((room) => (
+                            <option key={room.id} value={room.id}>
+                                {room.name} — {room.type}, {room.capacity} seats
+                            </option>
+                        ))}
+                    </select>
+                </div>
             </div>
 
             <SplittingOptions
-                totalHours={formData.hoursPerWeek}
-                mode={splittingMode}
-                selectedValue={formData.hoursSplitting}
-                manualValue={manualSplittingInput}
-                options={splittingOptions}
-                onModeChange={setSplittingMode}
-                onSelectSuggested={handleSelectSuggestedSplitting}
-                onManualChange={handleManualInputChange}
+                value={splitting}
+                onChange={(nextValue) => {
+                    setSplitting(nextValue);
+                    setError("");
+                }}
             />
 
             <ExceptionsPicker
-                value={{
-                    excludedDays: formData.excludedDays,
-                    excludedTimeSlots: formData.excludedTimeSlots
-                }}
-                onChange={(val) => setFormData({ ...formData, ...val })}
+                value={exceptions}
                 timeSlots={timeSlots}
+                onChange={(nextValue) => {
+                    setExceptions(nextValue);
+                    setError("");
+                }}
             />
 
-            <div className="flex justify-end space-x-3 pt-4">
-                <button
+            {error && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {error}
+                </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+                <Button
                     type="button"
+                    variant="outline"
                     onClick={onCancel}
-                    className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                    disabled={saving}
                 >
                     Cancel
-                </button>
-                <button
-                    type="submit"
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                >
-                    Save Assignment
-                </button>
+                </Button>
+
+                <Button type="submit" disabled={saving}>
+                    {saving ? "Saving..." : "Save"}
+                </Button>
             </div>
         </form>
     );

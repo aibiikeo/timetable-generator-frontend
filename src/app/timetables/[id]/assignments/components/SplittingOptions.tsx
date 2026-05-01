@@ -1,83 +1,114 @@
-'use client';
+"use client";
 
-import { generateSplittingOptions } from "@/lib/splitting";
+import { Input } from "@/components/ui/input";
 
-type SplittingMode = 'auto' | 'manual';
+export interface SplittingConfig {
+    enabled: boolean;
+    minPartHours: number;
+    maxPartHours: number;
+    allowDifferentDays: boolean;
+}
 
 interface SplittingOptionsProps {
-    totalHours: number;
-    mode: SplittingMode;
-    selectedValue: string;
-    manualValue: string;
-    onModeChange: (mode: SplittingMode) => void;
-    onSelectSuggested: (value: string) => void;
-    onManualChange: (value: string) => void;
-    options?: string[];
+    value: SplittingConfig;
+    onChange: (value: SplittingConfig) => void;
 }
 
 export default function SplittingOptions({
-                                             totalHours,
-                                             mode,
-                                             selectedValue,
-                                             manualValue,
-                                             onModeChange,
-                                             onSelectSuggested,
-                                             onManualChange,
-                                             options,
+                                             value,
+                                             onChange,
                                          }: SplittingOptionsProps) {
-    const generatedOptions = options || generateSplittingOptions(totalHours);
+    const update = <K extends keyof SplittingConfig>(
+        key: K,
+        nextValue: SplittingConfig[K],
+    ) => {
+        onChange({
+            ...value,
+            [key]: nextValue,
+        });
+    };
 
     return (
-        <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">
-                Hour splitting
-            </label>
+        <div className="rounded-2xl border border-border p-4">
+            <div className="flex items-start justify-between gap-4">
+                <div>
+                    <h4 className="text-sm font-semibold">
+                        Splitting options
+                    </h4>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                        Split weekly hours into smaller lessons if needed.
+                    </p>
+                </div>
 
-            {generatedOptions.map(opt => (
-                <label key={opt} className="flex items-center space-x-2">
+                <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
                     <input
-                        type="radio"
-                        name="splitting"
-                        value={opt}
-                        checked={mode === 'auto' && selectedValue === opt}
-                        onChange={() => {
-                            onModeChange('auto');
-                            onSelectSuggested(opt);
-                        }}
-                        className="h-4 w-4 text-blue-600"
+                        type="checkbox"
+                        checked={value.enabled}
+                        onChange={(e) =>
+                            update("enabled", e.target.checked)
+                        }
+                        className="h-4 w-4 rounded border-gray-300"
                     />
-                    <span>{opt}</span>
+                    Enabled
                 </label>
-            ))}
+            </div>
 
-            <label className="flex items-center space-x-2">
-                <input
-                    type="radio"
-                    name="splitting"
-                    value="manual-mode"
-                    checked={mode === 'manual'}
-                    onChange={() => {
-                        onModeChange('manual');
-                    }}
-                    className="h-4 w-4 text-blue-600"
-                />
-                <span>Enter manually:</span>
-            </label>
+            {value.enabled && (
+                <div className="mt-4 space-y-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label className="mb-2 block text-sm font-medium">
+                                Minimum part hours
+                            </label>
 
-            {mode === 'manual' && (
-                <input
-                    type="text"
-                    value={manualValue}
-                    onChange={(e) => onManualChange(e.target.value)}
-                    placeholder="e.g. 4+1 or 2+2+1"
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                />
+                            <Input
+                                type="number"
+                                min={1}
+                                value={value.minPartHours}
+                                onChange={(e) =>
+                                    update(
+                                        "minPartHours",
+                                        Number(e.target.value),
+                                    )
+                                }
+                            />
+                        </div>
+
+                        <div>
+                            <label className="mb-2 block text-sm font-medium">
+                                Maximum part hours
+                            </label>
+
+                            <Input
+                                type="number"
+                                min={1}
+                                value={value.maxPartHours}
+                                onChange={(e) =>
+                                    update(
+                                        "maxPartHours",
+                                        Number(e.target.value),
+                                    )
+                                }
+                            />
+                        </div>
+                    </div>
+
+                    <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm">
+                        <input
+                            type="checkbox"
+                            checked={value.allowDifferentDays}
+                            onChange={(e) =>
+                                update(
+                                    "allowDifferentDays",
+                                    e.target.checked,
+                                )
+                            }
+                            className="h-4 w-4 rounded border-gray-300"
+                        />
+                        Allow parts on different days
+                    </label>
+                </div>
             )}
-
-            <p className="text-xs text-gray-500">
-                Automatic options are generated using blocks of 2, 3, and 4 hours.
-                The value 1 can only be used in manual input.
-            </p>
         </div>
     );
 }
