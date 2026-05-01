@@ -1,412 +1,828 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import ProtectedRoute from '@/components/ProtectedRoute';
-import { useAuth, lessonApi, assignmentApi, roomApi } from '@/lib';
-import { LessonResponse, DayOfWeek, RoomResponse, AssignmentResponse } from '@/lib/types';
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+    CalendarClock,
+    Edit,
+    Plus,
+    Search,
+    Trash2,
+} from "lucide-react";
 
-type SortField = 'dayOfWeek' | 'startTime' | 'subjectName' | 'teacherName' | 'roomName';
-type SortDirection = 'asc' | 'desc';
+import { AppShell } from "@/components/layout/AppShell";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+    Card,
+    CardContent,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+    assignmentApi,
+    lessonApi,
+    roomApi,
+    timetableApi,
+} from "@/lib";
+import type {
+    AssignmentResponse,
+    DayOfWeek,
+    LessonResponse,
+    RoomResponse,
+    TimetableResponse,
+} from "@/lib/types";
+
+type SortField = "dayOfWeek" | "startTime" | "subjectName" | "teacherName" | "roomName";
+type SortDirection = "asc" | "desc";
 
 interface LessonFormData {
     assignmentId: number;
     dayOfWeek: DayOfWeek;
     startTime: string;
-    durationHours: number;
+    durationHours: number | string;
     roomId?: number;
 }
 
-const days: DayOfWeek[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+const DAYS: DayOfWeek[] = [
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+    "SUNDAY",
+];
+
+const DAY_ORDER: Record<DayOfWeek, number> = {
+    MONDAY: 1,
+    TUESDAY: 2,
+    WEDNESDAY: 3,
+    THURSDAY: 4,
+    FRIDAY: 5,
+    SATURDAY: 6,
+    SUNDAY: 7,
+};
+
+const EMPTY_FORM: LessonFormData = {
+    assignmentId: 0,
+    dayOfWeek: "MONDAY",
+    startTime: "09:00",
+    durationHours: 2,
+    roomId: undefined,
+};
 
 export default function LessonsPage() {
     const router = useRouter();
-    const searchParams = useSearchParams();
-    const timetableId = searchParams.get('timetableId');
-    const { logout } = useAuth();
+
+    const [publishedTimetable, setPublishedTimetable] =
+        useState<TimetableResponse | null>(null);
 
     const [lessons, setLessons] = useState<LessonResponse[]>([]);
     const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
     const [rooms, setRooms] = useState<RoomResponse[]>([]);
-    const [filteredLessons, setFilteredLessons] = useState<LessonResponse[]>([]);
+
     const [loading, setLoading] = useState(true);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [selectedDay, setSelectedDay] = useState<DayOfWeek | 'ALL'>('ALL');
+    const [error, setError] = useState("");
+
+    const [searchQuery, setSearchQuery] = useState("");
+    const [selectedDay, setSelectedDay] = useState<DayOfWeek | "ALL">("ALL");
     const [selectedLessons, setSelectedLessons] = useState<number[]>([]);
+
+    const [sortField, setSortField] = useState<SortField>("dayOfWeek");
+    const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [currentLesson, setCurrentLesson] = useState<LessonResponse | null>(null);
-    const [formData, setFormData] = useState<LessonFormData>({
-        assignmentId: 0,
-        dayOfWeek: 'MONDAY',
-        startTime: '09:00',
-        durationHours: 2,
-        roomId: undefined,
-    });
-    const [error, setError] = useState('');
 
-    // Sorting
-    const [sortField, setSortField] = useState<SortField>('dayOfWeek');
-    const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-    const listRef = useRef<HTMLDivElement>(null);
+    const [formData, setFormData] = useState<LessonFormData>(EMPTY_FORM);
 
     useEffect(() => {
-        if (!timetableId) {
-            setLoading(false);
-            return;
-        }
-        loadData();
-    }, [timetableId]);
+        void loadData(true);
+    }, []);
 
-    useEffect(() => {
-        if (!timetableId) return;
+    const filteredLessons = useMemo(() => {
         const lower = searchQuery.toLowerCase();
-        const filtered = lessons.filter(l =>
-            l.subjectName.toLowerCase().includes(lower) ||
-            l.teacherName.toLowerCase().includes(lower) ||
-            l.roomName.toLowerCase().includes(lower) ||
-            l.groupNames.some(g => g.toLowerCase().includes(lower))
-        );
-        const dayFiltered = selectedDay === 'ALL' ? filtered : filtered.filter(l => l.dayOfWeek === selectedDay);
-        setFilteredLessons(dayFiltered);
-        setSelectedLessons([]);
-    }, [searchQuery, lessons, selectedDay]);
+
+        return lessons.filter((lesson) => {
+            const matchesSearch =
+                lesson.subjectName.toLowerCase().includes(lower) ||
+                lesson.teacherName.toLowerCase().includes(lower) ||
+                (lesson.roomName || "").toLowerCase().includes(lower) ||
+                lesson.groupNames.some((group) => group.toLowerCase().includes(lower)) ||
+                lesson.dayOfWeek.toLowerCase().includes(lower) ||
+                lesson.startTime.includes(lower);
+
+            const matchesDay =
+                selectedDay === "ALL" || lesson.dayOfWeek === selectedDay;
+
+            return matchesSearch && matchesDay;
+        });
+    }, [lessons, searchQuery, selectedDay]);
 
     const sortedLessons = useMemo(() => {
-        const arr = [...filteredLessons];
-        arr.sort((a, b) => {
-            const dir = sortDirection === 'asc' ? 1 : -1;
-            if (sortField === 'dayOfWeek') {
-                const order = { MONDAY: 1, TUESDAY: 2, WEDNESDAY: 3, THURSDAY: 4, FRIDAY: 5, SATURDAY: 6, SUNDAY: 7 };
-                return (order[a.dayOfWeek] - order[b.dayOfWeek]) * dir;
+        return [...filteredLessons].sort((a, b) => {
+            const direction = sortDirection === "asc" ? 1 : -1;
+
+            if (sortField === "dayOfWeek") {
+                return (DAY_ORDER[a.dayOfWeek] - DAY_ORDER[b.dayOfWeek]) * direction;
             }
-            if (sortField === 'startTime') return a.startTime.localeCompare(b.startTime) * dir;
-            if (sortField === 'subjectName') return a.subjectName.localeCompare(b.subjectName) * dir;
-            if (sortField === 'teacherName') return a.teacherName.localeCompare(b.teacherName) * dir;
-            if (sortField === 'roomName') return a.roomName.localeCompare(b.roomName) * dir;
-            return 0;
+
+            if (sortField === "roomName") {
+                return String(a.roomName || "").localeCompare(String(b.roomName || "")) * direction;
+            }
+
+            return String(a[sortField] || "").localeCompare(String(b[sortField] || "")) * direction;
         });
-        return arr;
     }, [filteredLessons, sortField, sortDirection]);
 
-    const loadData = async () => {
-        if (!timetableId) return;
+    const loadData = async (initial = false) => {
         try {
-            setLoading(true);
-            setError('');
+            if (initial) setLoading(true);
+
+            setError("");
+
+            const timetables = await timetableApi.getAllTimetables();
+
+            const published = timetables
+                .filter((timetable) => timetable.status === "PUBLISHED")
+                .sort((a, b) => {
+                    const dateDiff =
+                        new Date(b.createdAt).getTime() -
+                        new Date(a.createdAt).getTime();
+
+                    if (dateDiff !== 0) return dateDiff;
+
+                    return b.version - a.version;
+                })[0] ?? null;
+
+            setPublishedTimetable(published);
+
+            if (!published) {
+                setLessons([]);
+                setAssignments([]);
+                setRooms([]);
+                setSelectedLessons([]);
+                return;
+            }
+
             const [lessonsData, assignmentsData, roomsData] = await Promise.all([
-                lessonApi.getLessonsByTimetable(Number(timetableId)),
-                assignmentApi.getAssignmentsByTimetable(Number(timetableId)),
+                lessonApi.getLessonsByTimetable(published.id),
+                assignmentApi.getAssignmentsByTimetable(published.id),
                 roomApi.getRooms(),
             ]);
+
             setLessons(lessonsData);
-            setFilteredLessons(lessonsData);
             setAssignments(assignmentsData);
             setRooms(roomsData);
-        } catch (err: any) {
-            console.error('Error loading lessons:', err);
-            setError('Failed to load lessons');
+        } catch (err) {
+            console.error("Error loading published timetable lessons:", err);
+            setError("Failed to load lessons from published timetable");
         } finally {
-            setLoading(false);
+            if (initial) setLoading(false);
         }
+    };
+
+    const resetForm = () => {
+        setFormData(EMPTY_FORM);
     };
 
     const handleSort = (field: SortField) => {
         if (sortField === field) {
-            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+            setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
         } else {
             setSortField(field);
-            setSortDirection('asc');
+            setSortDirection("asc");
         }
     };
 
-    const getSortIcon = (field: SortField) => {
-        if (sortField !== field) return null;
-        return sortDirection === 'asc' ? (
-            <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
-        ) : (
-            <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+    const getSortLabel = (field: SortField, label: string) => {
+        const isActive = sortField === field;
+
+        return (
+            <button
+                type="button"
+                onClick={() => handleSort(field)}
+                className="inline-flex items-center gap-1 font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+                {label}
+                {isActive && (
+                    <span className="text-xs">
+                        {sortDirection === "asc" ? "↑" : "↓"}
+                    </span>
+                )}
+            </button>
         );
     };
 
+    const handleInputChange = (
+        e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+    ) => {
+        const { name, value, type } = e.target;
+
+        setFormData((prev) => ({
+            ...prev,
+            [name]:
+                type === "number" || name === "assignmentId" || name === "roomId"
+                    ? value === ""
+                        ? undefined
+                        : Number(value)
+                    : value,
+        }));
+    };
+
+    const validateForm = () => {
+        if (!formData.assignmentId) {
+            setError("Please select assignment");
+            return false;
+        }
+
+        if (!formData.dayOfWeek) {
+            setError("Please select day");
+            return false;
+        }
+
+        if (!formData.startTime) {
+            setError("Start time is required");
+            return false;
+        }
+
+        if (Number(formData.durationHours) < 1) {
+            setError("Duration must be at least 1 hour");
+            return false;
+        }
+
+        return true;
+    };
+
+    const getPayload = () => ({
+        assignmentId: Number(formData.assignmentId),
+        dayOfWeek: formData.dayOfWeek,
+        startTime: formData.startTime,
+        durationHours: Number(formData.durationHours),
+        roomId: formData.roomId ? Number(formData.roomId) : undefined,
+    });
+
     const handleCreateSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!timetableId) return;
+
+        if (!validateForm()) return;
+
         try {
-            setError('');
-            await lessonApi.createLesson(Number(timetableId), formData);
+            setError("");
+
+            if (!publishedTimetable) {
+                setError("No published timetable found");
+                return;
+            }
+
+            await lessonApi.createLesson(publishedTimetable.id, getPayload());
+
             setIsCreateModalOpen(false);
             resetForm();
-            loadData();
+
+            await loadData();
         } catch (err: any) {
-            setError(err.response?.data?.message || 'Failed to create lesson');
+            console.error("Error creating lesson:", err);
+            setError(err.response?.data?.message || "Failed to create lesson");
         }
     };
 
     const handleEditSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!timetableId || !currentLesson) return;
+
+        if (!currentLesson) return;
+        if (!validateForm()) return;
+
         try {
-            await lessonApi.updateLesson(Number(timetableId), currentLesson.id, formData);
+            setError("");
+
+            if (!publishedTimetable) {
+                setError("No published timetable found");
+                return;
+            }
+
+            await lessonApi.updateLesson(
+                publishedTimetable.id,
+                currentLesson.id,
+                getPayload(),
+            );
+
             setIsEditModalOpen(false);
             setCurrentLesson(null);
             resetForm();
-            loadData();
-        } catch (err: any) {
-            setError(err.response?.data?.message || 'Failed to update lesson');
-        }
-    };
 
-    const handleDelete = async (lessonId: number) => {
-        if (!timetableId) return;
-        if (!confirm('Delete this lesson?')) return;
-        try {
-            await lessonApi.deleteLesson(Number(timetableId), lessonId);
-            loadData();
+            await loadData();
         } catch (err: any) {
-            setError(err.response?.data?.message || 'Failed to delete lesson');
-        }
-    };
-
-    const handleDeleteSelected = async () => {
-        if (!timetableId || selectedLessons.length === 0) return;
-        if (!confirm(`Delete ${selectedLessons.length} lessons?`)) return;
-        try {
-            await Promise.all(selectedLessons.map(id => lessonApi.deleteLesson(Number(timetableId), id)));
-            setSelectedLessons([]);
-            loadData();
-        } catch {
-            setError('Failed to delete some lessons');
+            console.error("Error updating lesson:", err);
+            setError(err.response?.data?.message || "Failed to update lesson");
         }
     };
 
     const handleEdit = (lesson: LessonResponse) => {
+        const room = rooms.find((item) => item.name === lesson.roomName);
+
         setCurrentLesson(lesson);
         setFormData({
             assignmentId: lesson.assignmentId,
             dayOfWeek: lesson.dayOfWeek,
             startTime: lesson.startTime,
             durationHours: lesson.durationHours,
-            roomId: rooms.find(r => r.name === lesson.roomName)?.id, // простой поиск, можно улучшить
+            roomId: room?.id,
         });
+
         setIsEditModalOpen(true);
     };
 
-    const resetForm = () => {
-        setFormData({
-            assignmentId: 0,
-            dayOfWeek: 'MONDAY',
-            startTime: '09:00',
-            durationHours: 2,
-            roomId: undefined,
-        });
+    const handleDelete = async (lesson: LessonResponse) => {
+        if (!confirm(`Delete lesson "${lesson.subjectName}"?`)) return;
+
+        try {
+            setError("");
+
+            if (!publishedTimetable) {
+                setError("No published timetable found");
+                return;
+            }
+
+            await lessonApi.deleteLesson(publishedTimetable.id, lesson.id);
+
+            await loadData();
+        } catch (err: any) {
+            console.error("Error deleting lesson:", err);
+            setError(err.response?.data?.message || "Failed to delete lesson");
+        }
+    };
+
+    const handleDeleteSelected = async () => {
+        if (selectedLessons.length === 0) return;
+
+        if (!confirm(`Delete ${selectedLessons.length} selected lessons?`)) return;
+
+        if (!publishedTimetable) {
+            setError("No published timetable found");
+            return;
+        }
+
+        try {
+            setError("");
+
+            const results = await Promise.allSettled(
+                selectedLessons.map((id) =>
+                    lessonApi.deleteLesson(publishedTimetable.id, id),
+                ),
+            );
+
+            const failed = results.filter((result) => result.status === "rejected");
+
+            if (failed.length > 0) {
+                setError(`${failed.length} lesson(s) could not be deleted`);
+            }
+
+            setSelectedLessons([]);
+            await loadData();
+        } catch {
+            setError("Unexpected error while deleting lessons");
+        }
     };
 
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setSelectedLessons(e.target.checked ? sortedLessons.map(l => l.id) : []);
+        if (e.target.checked) {
+            setSelectedLessons(sortedLessons.map((lesson) => lesson.id));
+        } else {
+            setSelectedLessons([]);
+        }
     };
 
-    const handleSelect = (id: number) => {
-        setSelectedLessons(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-    };
-
-    const handleLogout = () => {
-        logout();
-        router.push('/login');
-    };
-
-    if (!timetableId) {
-        return (
-            <ProtectedRoute>
-                <div className="min-h-screen flex items-center justify-center">
-                    <p className="text-gray-500">Select a timetable from the <button onClick={() => router.push('/timetables')} className="text-blue-600 underline">Timetables page</button></p>
-                </div>
-            </ProtectedRoute>
+    const handleSelectLesson = (id: number) => {
+        setSelectedLessons((prev) =>
+            prev.includes(id)
+                ? prev.filter((lessonId) => lessonId !== id)
+                : [...prev, id],
         );
-    }
+    };
 
-    if (loading) {
+    const openCreateModal = () => {
+        setError("");
+        resetForm();
+        setIsCreateModalOpen(true);
+    };
+
+    if (!loading && !publishedTimetable) {
         return (
-            <ProtectedRoute>
-                <div className="min-h-screen flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-                </div>
-            </ProtectedRoute>
+            <AppShell>
+                <PageHeader
+                    eyebrow="Scheduling"
+                    title="Lessons"
+                    description="Published timetable lessons will appear here."
+                />
+
+                <Card className="glass-card">
+                    <CardContent className="py-12">
+                        <EmptyState
+                            title="No published timetable"
+                            description="Publish a timetable first, then its lessons will be shown here."
+                            actionLabel="Go to timetables"
+                            onAction={() => router.push("/timetables")}
+                        />
+                    </CardContent>
+                </Card>
+            </AppShell>
         );
     }
 
     return (
-        <ProtectedRoute>
-            <header className="fixed top-0 left-0 right-0 bg-white shadow-sm border-b z-50">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between items-center h-16">
-                        <div className="flex items-center">
-                            <div className="flex-shrink-0">
-                                <img src="/logo_aiu.png" alt="Logo" className="h-8 w-auto" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                            </div>
-                            <h1 className="ml-3 text-xl font-semibold text-gray-900">Lessons of Timetable #{timetableId}</h1>
-                            <button onClick={() => router.push('/timetables')} className="ml-4 text-sm text-blue-600 hover:text-blue-800 flex items-center">
-                                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                                Back to Timetables
-                            </button>
-                        </div>
-                        <button onClick={handleLogout} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">Logout</button>
-                    </div>
-                </div>
-            </header>
+        <AppShell>
+            <PageHeader
+                eyebrow="Scheduling"
+                title="Lessons"
+                description={
+                    publishedTimetable
+                        ? `Showing lessons from published timetable: ${publishedTimetable.name}`
+                        : "Published timetable lessons will appear here."
+                }
+                actions={
+                    publishedTimetable && (
+                        <Button onClick={openCreateModal}>
+                            <Plus className="h-4 w-4" />
+                            New lesson
+                        </Button>
+                    )
+                }
+            />
 
-            <main className="pt-16 flex flex-col min-h-screen">
-                <div className="bg-white border-b shadow-sm py-4 px-4 sm:px-6 lg:px-8 sticky top-16 z-40">
-                    <div className="max-w-7xl mx-auto">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                            <div className="flex-1 relative">
-                                <input type="text" placeholder="Search lessons..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                                       className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
-                                <svg className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                            </div>
-                            <div className="flex items-center space-x-4">
-                                <select value={selectedDay} onChange={e => setSelectedDay(e.target.value as DayOfWeek | 'ALL')} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                                    <option value="ALL">All days</option>
-                                    {days.map(d => <option key={d} value={d}>{d}</option>)}
-                                </select>
-                                {selectedLessons.length > 0 && (
-                                    <button onClick={handleDeleteSelected} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center">
-                                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                        Delete Selected ({selectedLessons.length})
-                                    </button>
-                                )}
-                                <button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center">
-                                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                                    Add Lesson
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {error && (
-                    <div className="max-w-7xl mx-auto mt-4 px-4">
-                        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center">
-                            <svg className="h-5 w-5 text-red-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
-                            <p className="text-sm text-red-700 flex-1">{error}</p>
-                            <button onClick={() => setError('')} className="text-red-700 hover:text-red-900">✕</button>
-                        </div>
-                    </div>
-                )}
-
-                <div className="flex-1">
-                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 h-full">
-                        {sortedLessons.length === 0 ? (
-                            <div className="text-center py-12 text-gray-400 text-lg">No lessons found</div>
-                        ) : (
-                            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden h-full flex flex-col">
-                                <div className="border-b border-gray-200 bg-gray-50 px-6 py-3 flex-shrink-0">
-                                    <div className="flex items-center">
-                                        <div className="flex items-center w-12 pl-2">
-                                            <input type="checkbox" checked={selectedLessons.length === sortedLessons.length && sortedLessons.length > 0} onChange={handleSelectAll} className="h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer" />
-                                        </div>
-                                        <div className="grid grid-cols-12 flex-1 gap-2">
-                                            <div className="col-span-1 pl-2 text-sm font-medium text-gray-700 cursor-pointer flex items-center hover:text-blue-600" onClick={() => handleSort('dayOfWeek')}>
-                                                Day {getSortIcon('dayOfWeek')}
-                                            </div>
-                                            <div className="col-span-1 text-sm font-medium text-gray-700 cursor-pointer flex items-center hover:text-blue-600" onClick={() => handleSort('startTime')}>
-                                                Time {getSortIcon('startTime')}
-                                            </div>
-                                            <div className="col-span-2 text-sm font-medium text-gray-700 cursor-pointer flex items-center hover:text-blue-600" onClick={() => handleSort('subjectName')}>
-                                                Subject {getSortIcon('subjectName')}
-                                            </div>
-                                            <div className="col-span-2 text-sm font-medium text-gray-700 cursor-pointer flex items-center hover:text-blue-600" onClick={() => handleSort('teacherName')}>
-                                                Teacher {getSortIcon('teacherName')}
-                                            </div>
-                                            <div className="col-span-3 text-sm font-medium text-gray-700">Groups</div>
-                                            <div className="col-span-2 text-sm font-medium text-gray-700 cursor-pointer flex items-center hover:text-blue-600" onClick={() => handleSort('roomName')}>
-                                                Room {getSortIcon('roomName')}
-                                            </div>
-                                            <div className="col-span-1 text-sm font-medium text-gray-700 text-right pr-4">Actions</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div ref={listRef} className="flex-1 overflow-y-auto custom-scrollbar" style={{ maxHeight: 'calc(100vh - 230px)' }}>
-                                    {sortedLessons.map(lesson => (
-                                        <div key={lesson.id} className="px-6 py-4 hover:bg-gray-50 border-b border-gray-100 last:border-b-0">
-                                            <div className="flex items-center">
-                                                <div className="flex items-center w-12 pl-2">
-                                                    <input type="checkbox" checked={selectedLessons.includes(lesson.id)} onChange={() => handleSelect(lesson.id)} className="h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer" />
-                                                </div>
-                                                <div className="grid grid-cols-12 flex-1 gap-2 items-center text-sm">
-                                                    <div className="col-span-1 pl-2">{lesson.dayOfWeek.slice(0,3)}</div>
-                                                    <div className="col-span-1">{lesson.startTime} ({lesson.durationHours}h)</div>
-                                                    <div className="col-span-2 truncate" title={lesson.subjectName}>{lesson.subjectName}</div>
-                                                    <div className="col-span-2 truncate" title={lesson.teacherName}>{lesson.teacherName}</div>
-                                                    <div className="col-span-3 truncate" title={lesson.groupNames.join(', ')}>{lesson.groupNames.join(', ')}</div>
-                                                    <div className="col-span-2 truncate" title={lesson.roomName}>{lesson.roomName}</div>
-                                                    <div className="col-span-1 flex justify-end space-x-2 pr-4">
-                                                        <button onClick={() => handleEdit(lesson)} className="text-blue-600 hover:text-blue-800">✏️</button>
-                                                        <button onClick={() => handleDelete(lesson.id)} className="text-red-600 hover:text-red-800">🗑️</button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </main>
-
-            {/* Create/Edit Modal */}
-            {(isCreateModalOpen || isEditModalOpen) && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-                        <div className="p-6">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-lg font-semibold">{isEditModalOpen ? 'Edit Lesson' : 'Add Lesson'}</h3>
-                                <button onClick={() => { setIsCreateModalOpen(false); setIsEditModalOpen(false); setCurrentLesson(null); resetForm(); }} className="text-gray-400 hover:text-gray-500">✕</button>
-                            </div>
-                            <form onSubmit={isEditModalOpen ? handleEditSubmit : handleCreateSubmit}>
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Assignment *</label>
-                                        <select value={formData.assignmentId} onChange={e => setFormData({ ...formData, assignmentId: Number(e.target.value) })} required className="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                                            <option value={0}>Select assignment</option>
-                                            {assignments.map(a => (
-                                                <option key={a.id} value={a.id}>{a.subjectName} - {a.teacherName}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Day *</label>
-                                        <select value={formData.dayOfWeek} onChange={e => setFormData({ ...formData, dayOfWeek: e.target.value as DayOfWeek })} required className="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                                            {days.map(d => <option key={d} value={d}>{d}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Start Time *</label>
-                                        <input type="time" value={formData.startTime} onChange={e => setFormData({ ...formData, startTime: e.target.value })} required className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Duration (hours) *</label>
-                                        <input type="number" min="1" max="8" value={formData.durationHours} onChange={e => setFormData({ ...formData, durationHours: Number(e.target.value) })} required className="w-full px-3 py-2 border border-gray-300 rounded-lg" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Room (optional)</label>
-                                        <select value={formData.roomId || ''} onChange={e => setFormData({ ...formData, roomId: e.target.value ? Number(e.target.value) : undefined })} className="w-full px-3 py-2 border border-gray-300 rounded-lg">
-                                            <option value="">Auto-assign</option>
-                                            {rooms.map(r => <option key={r.id} value={r.id}>{r.name} ({r.capacity})</option>)}
-                                        </select>
-                                    </div>
-                                </div>
-                                <div className="mt-8 flex justify-end space-x-3">
-                                    <button type="button" onClick={() => { setIsCreateModalOpen(false); setIsEditModalOpen(false); setCurrentLesson(null); resetForm(); }} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">Cancel</button>
-                                    <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
+            {error && (
+                <Card className="mb-6 border-red-200 bg-red-50 text-red-800">
+                    <CardContent className="p-4 text-sm">{error}</CardContent>
+                </Card>
             )}
-        </ProtectedRoute>
+
+            <section className="grid gap-4 md:grid-cols-3">
+                <Card className="glass-card">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                            Lessons
+                        </CardTitle>
+                        <CalendarClock className="h-4 w-4 text-blue-700" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-3xl font-bold">{lessons.length}</div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            Total lessons
+                        </p>
+                    </CardContent>
+                </Card>
+
+                <Card className="glass-card">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                            Published timetable
+                        </CardTitle>
+                        <Badge variant="success">PUBLISHED</Badge>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="truncate text-xl font-bold">
+                            {publishedTimetable?.name || "—"}
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            {publishedTimetable
+                                ? `${publishedTimetable.academicYearStart}–${publishedTimetable.academicYearEnd} · ${publishedTimetable.semester}`
+                                : "No published timetable"}
+                        </p>
+                    </CardContent>
+                </Card>
+
+                <Card className="glass-card">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                            Selected
+                        </CardTitle>
+                        <Badge variant="secondary">Bulk</Badge>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-3xl font-bold">{selectedLessons.length}</div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            Selected rows
+                        </p>
+                    </CardContent>
+                </Card>
+            </section>
+
+            <Card className="glass-card mt-6">
+                <CardHeader>
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                        <div className="relative w-full max-w-xl">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="Search by subject, teacher, room, group..."
+                                className="h-11 rounded-xl pl-10 pr-4 shadow-sm"
+                            />
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                            <select
+                                value={selectedDay}
+                                onChange={(e) =>
+                                    setSelectedDay(e.target.value as DayOfWeek | "ALL")
+                                }
+                                className="h-11 rounded-xl border border-input bg-card px-3 text-sm shadow-sm"
+                            >
+                                <option value="ALL">All days</option>
+                                {DAYS.map((day) => (
+                                    <option key={day} value={day}>
+                                        {day}
+                                    </option>
+                                ))}
+                            </select>
+
+                            {selectedLessons.length > 0 && (
+                                <Button variant="destructive" onClick={handleDeleteSelected}>
+                                    <Trash2 className="h-4 w-4" />
+                                    Delete selected ({selectedLessons.length})
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                </CardHeader>
+
+                <CardContent>
+                    {loading ? (
+                        <div className="space-y-3">
+                            {Array.from({ length: 6 }).map((_, index) => (
+                                <Skeleton key={index} className="h-14 w-full" />
+                            ))}
+                        </div>
+                    ) : sortedLessons.length === 0 ? (
+                        <EmptyState
+                            title="No lessons found"
+                            description="Create a lesson or change filters."
+                            actionLabel="New lesson"
+                            onAction={openCreateModal}
+                        />
+                    ) : (
+                        <div className="custom-scrollbar overflow-x-auto">
+                            <table className="w-full min-w-[1050px] text-sm">
+                                <thead>
+                                <tr className="border-b text-left">
+                                    <th className="w-12 py-3">
+                                        <input
+                                            type="checkbox"
+                                            checked={
+                                                selectedLessons.length === sortedLessons.length &&
+                                                sortedLessons.length > 0
+                                            }
+                                            onChange={handleSelectAll}
+                                            className="h-4 w-4 rounded border-gray-300"
+                                        />
+                                    </th>
+                                    <th className="py-3">{getSortLabel("dayOfWeek", "Day")}</th>
+                                    <th className="py-3">{getSortLabel("startTime", "Time")}</th>
+                                    <th className="py-3">{getSortLabel("subjectName", "Subject")}</th>
+                                    <th className="py-3">{getSortLabel("teacherName", "Teacher")}</th>
+                                    <th className="py-3">Groups</th>
+                                    <th className="py-3">{getSortLabel("roomName", "Room")}</th>
+                                    <th className="py-3 text-center">Duration</th>
+                                    <th className="py-3 text-right">Actions</th>
+                                </tr>
+                                </thead>
+
+                                <tbody>
+                                {sortedLessons.map((lesson) => (
+                                    <tr
+                                        key={lesson.id}
+                                        className="border-b last:border-b-0 hover:bg-accent/50"
+                                    >
+                                        <td className="py-4">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedLessons.includes(lesson.id)}
+                                                onChange={() => handleSelectLesson(lesson.id)}
+                                                className="h-4 w-4 rounded border-gray-300"
+                                            />
+                                        </td>
+
+                                        <td className="py-4">
+                                            <Badge variant="secondary">{lesson.dayOfWeek}</Badge>
+                                        </td>
+
+                                        <td className="py-4 font-medium">{lesson.startTime}</td>
+
+                                        <td className="py-4">
+                                            <div className="font-medium">{lesson.subjectName}</div>
+                                            <div className="text-xs text-muted-foreground">
+                                                ID: {lesson.id}
+                                            </div>
+                                        </td>
+
+                                        <td className="py-4">{lesson.teacherName}</td>
+
+                                        <td className="py-4">
+                                            <div className="flex flex-wrap gap-1">
+                                                {lesson.groupNames.map((group) => (
+                                                    <Badge key={group} variant="outline">
+                                                        {group}
+                                                    </Badge>
+                                                ))}
+                                            </div>
+                                        </td>
+
+                                        <td className="py-4">{lesson.roomName || "—"}</td>
+
+                                        <td className="py-4 text-center">
+                                            {lesson.durationHours}h
+                                        </td>
+
+                                        <td className="py-4">
+                                            <div className="flex justify-end gap-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon-sm"
+                                                    onClick={() => handleEdit(lesson)}
+                                                    aria-label="Edit lesson"
+                                                >
+                                                    <Edit className="h-4 w-4" />
+                                                </Button>
+
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon-sm"
+                                                    onClick={() => handleDelete(lesson)}
+                                                    aria-label="Delete lesson"
+                                                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            {(isCreateModalOpen || isEditModalOpen) && (
+                <LessonModal
+                    title={isCreateModalOpen ? "Create Lesson" : "Edit Lesson"}
+                    formData={formData}
+                    assignments={assignments}
+                    rooms={rooms}
+                    onChange={handleInputChange}
+                    onClose={() => {
+                        setIsCreateModalOpen(false);
+                        setIsEditModalOpen(false);
+                        setCurrentLesson(null);
+                        resetForm();
+                    }}
+                    onSubmit={isCreateModalOpen ? handleCreateSubmit : handleEditSubmit}
+                />
+            )}
+        </AppShell>
+    );
+}
+
+interface LessonModalProps {
+    title: string;
+    formData: LessonFormData;
+    assignments: AssignmentResponse[];
+    rooms: RoomResponse[];
+    onClose: () => void;
+    onSubmit: (e: React.FormEvent) => void;
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
+}
+
+function LessonModal({
+                         title,
+                         formData,
+                         assignments,
+                         rooms,
+                         onClose,
+                         onSubmit,
+                         onChange,
+                     }: LessonModalProps) {
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+            <div className="glass-card w-full max-w-xl rounded-2xl bg-card p-6 shadow-2xl">
+                <div className="mb-6 flex items-start justify-between gap-4">
+                    <div>
+                        <h3 className="text-lg font-semibold">{title}</h3>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            Place a lesson into a day, time and room.
+                        </p>
+                    </div>
+
+                    <Button type="button" variant="ghost" size="icon" onClick={onClose}>
+                        ✕
+                    </Button>
+                </div>
+
+                <form onSubmit={onSubmit} className="space-y-4">
+                    <div>
+                        <label className="mb-2 block text-sm font-medium">
+                            Assignment
+                        </label>
+                        <select
+                            name="assignmentId"
+                            value={formData.assignmentId}
+                            onChange={onChange}
+                            required
+                            className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                            <option value={0}>Select assignment</option>
+                            {assignments.map((assignment) => (
+                                <option key={assignment.id} value={assignment.id}>
+                                    {assignment.subjectName} — {assignment.teacherName}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label className="mb-2 block text-sm font-medium">
+                                Day
+                            </label>
+                            <select
+                                name="dayOfWeek"
+                                value={formData.dayOfWeek}
+                                onChange={onChange}
+                                required
+                                className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                                {DAYS.map((day) => (
+                                    <option key={day} value={day}>
+                                        {day}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="mb-2 block text-sm font-medium">
+                                Start time
+                            </label>
+                            <Input
+                                type="time"
+                                name="startTime"
+                                value={formData.startTime}
+                                onChange={onChange}
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label className="mb-2 block text-sm font-medium">
+                                Duration hours
+                            </label>
+                            <Input
+                                type="number"
+                                name="durationHours"
+                                value={formData.durationHours}
+                                onChange={onChange}
+                                min={1}
+                                required
+                            />
+                        </div>
+
+                        <div>
+                            <label className="mb-2 block text-sm font-medium">
+                                Room
+                            </label>
+                            <select
+                                name="roomId"
+                                value={formData.roomId ?? ""}
+                                onChange={onChange}
+                                className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                                <option value="">No room</option>
+                                {rooms.map((room) => (
+                                    <option key={room.id} value={room.id}>
+                                        {room.name} — {room.type}, {room.capacity} seats
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-2">
+                        <Button type="button" variant="outline" onClick={onClose}>
+                            Cancel
+                        </Button>
+                        <Button type="submit">Save</Button>
+                    </div>
+                </form>
+            </div>
+        </div>
     );
 }
