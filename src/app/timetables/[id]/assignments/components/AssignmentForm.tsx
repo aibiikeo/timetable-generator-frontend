@@ -6,12 +6,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type {
+    AssignmentRequest,
     AssignmentResponse,
     RoomResponse,
+    RoomType,
+    Shift,
     StudyGroupResponse,
     SubjectResponse,
     TeacherResponse,
     TimeSlot,
+    TimeSlotExclusion,
 } from "@/lib/types";
 
 import ExceptionsPicker, { TimeException } from "./ExceptionsPicker";
@@ -25,7 +29,7 @@ interface AssignmentFormProps {
     rooms: RoomResponse[];
     timeSlots: TimeSlot[];
     saving?: boolean;
-    onSave: (data: unknown) => void | Promise<void>;
+    onSave: (data: AssignmentRequest) => void | Promise<void>;
     onCancel: () => void;
 }
 
@@ -34,10 +38,10 @@ interface FormState {
     teacherId: number;
     groupIds: number[];
     hoursPerWeek: number | string;
-    durationHours: number | string;
-    preferredRoomId: number;
-    roomTypeRequired: string;
-    shift: string;
+    lessonPartHours: number | string;
+    specificRoomId: number;
+    roomTypeRequired: RoomType;
+    shift: Shift;
 }
 
 const EMPTY_FORM: FormState = {
@@ -45,8 +49,8 @@ const EMPTY_FORM: FormState = {
     teacherId: 0,
     groupIds: [],
     hoursPerWeek: 2,
-    durationHours: 2,
-    preferredRoomId: 0,
+    lessonPartHours: 2,
+    specificRoomId: 0,
     roomTypeRequired: "ANY",
     shift: "MORNING",
 };
@@ -61,31 +65,76 @@ const DEFAULT_SPLITTING: SplittingConfig = {
 function getInitialFormState(initialAssignment?: AssignmentResponse | null): FormState {
     if (!initialAssignment) return EMPTY_FORM;
 
-    const unsafe = initialAssignment as unknown as {
-        subjectId?: number;
-        teacherId?: number;
-        groupIds?: number[];
-        hoursPerWeek?: number;
-        durationHours?: number;
-        preferredRoomId?: number;
-        roomTypeRequired?: string;
-        roomType?: string;
-        shift?: string;
-    };
+    const firstPart = initialAssignment.hoursSplitting
+        ?.split("+")
+        .map(Number)
+        .find((value) => Number.isFinite(value) && value > 0);
 
     return {
-        subjectId: unsafe.subjectId ?? 0,
-        teacherId: unsafe.teacherId ?? 0,
-        groupIds: unsafe.groupIds ?? [],
-        hoursPerWeek: unsafe.hoursPerWeek ?? 2,
-        durationHours:
-            unsafe.durationHours && unsafe.durationHours >= 2
-                ? unsafe.durationHours
-                : 2,
-        preferredRoomId: unsafe.preferredRoomId ?? 0,
-        roomTypeRequired: unsafe.roomTypeRequired ?? unsafe.roomType ?? "ANY",
-        shift: unsafe.shift ?? "MORNING",
+        subjectId: initialAssignment.subjectId,
+        teacherId: initialAssignment.teacherId,
+        groupIds: initialAssignment.groupIds ?? [],
+        hoursPerWeek: initialAssignment.hoursPerWeek ?? 2,
+        lessonPartHours: firstPart ?? 2,
+        specificRoomId: initialAssignment.specificRoomId ?? 0,
+        roomTypeRequired: initialAssignment.roomTypeRequired ?? "ANY",
+        shift: initialAssignment.shift ?? "MORNING",
     };
+}
+
+function buildDefaultHoursSplitting(
+    hoursPerWeek: number,
+    lessonPartHours: number,
+): string {
+    const parts: number[] = [];
+    let remaining = hoursPerWeek;
+
+    while (remaining > 0) {
+        const nextPart = Math.min(lessonPartHours, remaining);
+        parts.push(nextPart);
+        remaining -= nextPart;
+    }
+
+    return parts.join("+");
+}
+
+function buildCustomHoursSplitting(
+    hoursPerWeek: number,
+    splitting: SplittingConfig,
+): string {
+    const maxPartHours = Math.min(Number(splitting.maxPartHours), 4);
+
+    const parts: number[] = [];
+    let remaining = hoursPerWeek;
+
+    while (remaining > 0) {
+        const nextPart = Math.min(maxPartHours, remaining);
+        parts.push(nextPart);
+        remaining -= nextPart;
+    }
+
+    return parts.join("+");
+}
+
+function buildExcludedTimeSlots(
+    exceptions: TimeException[],
+    timeSlots: TimeSlot[],
+): TimeSlotExclusion[] {
+    return exceptions
+        .map((exception) => {
+            const timeSlot = timeSlots.find(
+                (slot) => slot.id === exception.timeSlotId,
+            );
+
+            if (!timeSlot) return null;
+
+            return {
+                day: exception.dayOfWeek,
+                startTime: timeSlot.startTime,
+                endTime: timeSlot.endTime,
+            };
+        })
+        .filter((item): item is TimeSlotExclusion => item !== null);
 }
 
 export default function AssignmentForm({
@@ -146,7 +195,7 @@ export default function AssignmentForm({
                 type === "number" ||
                 name === "subjectId" ||
                 name === "teacherId" ||
-                name === "preferredRoomId"
+                name === "specificRoomId"
                     ? value === ""
                         ? ""
                         : Number(value)
@@ -185,7 +234,7 @@ export default function AssignmentForm({
 
     const validateForm = () => {
         const hoursPerWeek = Number(formData.hoursPerWeek);
-        const durationHours = Number(formData.durationHours);
+        const lessonPartHours = Number(formData.lessonPartHours);
 
         if (!formData.subjectId) {
             setError("Please select a subject");
@@ -207,15 +256,20 @@ export default function AssignmentForm({
             return false;
         }
 
-        if (!Number.isFinite(durationHours) || durationHours < 2) {
+        if (!Number.isFinite(lessonPartHours) || lessonPartHours < 2) {
             setError(
                 "Generated lessons must take at least 2 slots. Use manual placement if you need 1 slot.",
             );
             return false;
         }
 
-        if (durationHours > hoursPerWeek) {
+        if (lessonPartHours > hoursPerWeek) {
             setError("Lesson duration cannot be greater than hours per week");
+            return false;
+        }
+
+        if (lessonPartHours > 4) {
+            setError("Lesson duration cannot be greater than 4 slots");
             return false;
         }
 
@@ -257,6 +311,16 @@ export default function AssignmentForm({
             return false;
         }
 
+        if (splitting.enabled && Number(splitting.minPartHours) > 4) {
+            setError("Minimum split hours cannot be greater than 4 slots");
+            return false;
+        }
+
+        if (splitting.enabled && Number(splitting.maxPartHours) > 4) {
+            setError("Maximum split hours cannot be greater than 4 slots");
+            return false;
+        }
+
         return true;
     };
 
@@ -265,30 +329,29 @@ export default function AssignmentForm({
 
         if (!validateForm()) return;
 
-        const payload = {
+        const hoursPerWeek = Number(formData.hoursPerWeek);
+        const lessonPartHours = Number(formData.lessonPartHours);
+
+        const hoursSplitting = splitting.enabled
+            ? buildCustomHoursSplitting(hoursPerWeek, splitting)
+            : buildDefaultHoursSplitting(hoursPerWeek, lessonPartHours);
+
+        const excludedTimeSlots = buildExcludedTimeSlots(exceptions, timeSlots);
+
+        const payload: AssignmentRequest = {
             subjectId: Number(formData.subjectId),
             teacherId: Number(formData.teacherId),
             groupIds: formData.groupIds,
-            hoursPerWeek: Number(formData.hoursPerWeek),
-            durationHours: Number(formData.durationHours),
-
-            preferredRoomId:
-                Number(formData.preferredRoomId) > 0
-                    ? Number(formData.preferredRoomId)
-                    : undefined,
-
-            roomTypeRequired: formData.roomTypeRequired,
+            hoursPerWeek,
             shift: formData.shift,
-
-            unavailableSlots: exceptions,
-
-            splittingOptions: splitting.enabled
-                ? {
-                    minPartHours: Number(splitting.minPartHours),
-                    maxPartHours: Number(splitting.maxPartHours),
-                    allowDifferentDays: splitting.allowDifferentDays,
-                }
-                : undefined,
+            roomTypeRequired: formData.roomTypeRequired,
+            hoursSplitting,
+            excludedTimeSlots:
+                excludedTimeSlots.length > 0 ? excludedTimeSlots : undefined,
+            specificRoomId:
+                Number(formData.specificRoomId) > 0
+                    ? Number(formData.specificRoomId)
+                    : undefined,
         };
 
         await onSave(payload);
@@ -465,9 +528,10 @@ export default function AssignmentForm({
 
                     <Input
                         type="number"
-                        name="durationHours"
+                        name="lessonPartHours"
                         min={2}
-                        value={formData.durationHours}
+                        max={4}
+                        value={formData.lessonPartHours}
                         onChange={handleChange}
                         required
                     />
@@ -509,9 +573,9 @@ export default function AssignmentForm({
                         required
                         className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
+                        <option value="ANY">Any</option>
                         <option value="MORNING">Morning</option>
                         <option value="AFTERNOON">Afternoon</option>
-                        <option value="EVENING">Evening</option>
                     </select>
                 </div>
 
@@ -521,8 +585,8 @@ export default function AssignmentForm({
                     </label>
 
                     <select
-                        name="preferredRoomId"
-                        value={formData.preferredRoomId}
+                        name="specificRoomId"
+                        value={formData.specificRoomId}
                         onChange={handleChange}
                         className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >

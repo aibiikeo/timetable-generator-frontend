@@ -258,6 +258,7 @@ export interface AssignmentResponse {
     hoursPerWeek: number;
     shift: Shift;
     roomTypeRequired: RoomType;
+    specificRoomId: number | null;
     hoursSplitting: string;
     generatedLessonsCount: number;
     requiredLessonsCount: number;

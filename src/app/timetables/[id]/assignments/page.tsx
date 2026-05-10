@@ -34,6 +34,7 @@ import {
     timeSlotApi,
 } from "@/lib";
 import type {
+    AssignmentRequest,
     AssignmentResponse,
     RoomResponse,
     StudyGroupResponse,
@@ -279,31 +280,19 @@ export default function AssignmentsPage({
         setSaving(false);
     };
 
-    const handleSaveAssignment = async (data: unknown) => {
+    const handleSaveAssignment = async (data: AssignmentRequest) => {
         try {
             setSaving(true);
             setError("");
             setSuccessMessage("");
 
             if (editingAssignment) {
-                const apiWithUpdate = assignmentApi as unknown as {
-                    updateAssignment?: (
-                        timetableId: number,
-                        assignmentId: number,
-                        data: unknown,
-                    ) => Promise<AssignmentResponse>;
-                };
-
-                if (!apiWithUpdate.updateAssignment) {
-                    setError("Update assignment API is not available");
-                    return;
-                }
-
-                await apiWithUpdate.updateAssignment(
+                await assignmentApi.updateAssignment(
                     timetableId,
                     editingAssignment.id,
                     data,
                 );
+
                 setSuccessMessage("Assignment updated successfully");
             } else {
                 await assignmentApi.createAssignment(timetableId, data);
@@ -333,19 +322,7 @@ export default function AssignmentsPage({
             setError("");
             setSuccessMessage("");
 
-            const apiWithDelete = assignmentApi as unknown as {
-                deleteAssignment?: (
-                    timetableId: number,
-                    assignmentId: number,
-                ) => Promise<void>;
-            };
-
-            if (!apiWithDelete.deleteAssignment) {
-                setError("Delete assignment API is not available");
-                return;
-            }
-
-            await apiWithDelete.deleteAssignment(timetableId, assignment.id);
+            await assignmentApi.deleteAssignment(timetableId, assignment.id);
             await loadData();
 
             setSuccessMessage("Assignment deleted successfully");
@@ -369,24 +346,9 @@ export default function AssignmentsPage({
             setError("");
             setSuccessMessage("");
 
-            const apiWithDelete = assignmentApi as unknown as {
-                deleteAssignment?: (
-                    timetableId: number,
-                    assignmentId: number,
-                ) => Promise<void>;
-            };
-
-            if (!apiWithDelete.deleteAssignment) {
-                setError("Delete assignment API is not available");
-                return;
-            }
-
             const results = await Promise.allSettled(
                 selectedAssignments.map((assignmentId) =>
-                    apiWithDelete.deleteAssignment!(
-                        timetableId,
-                        assignmentId,
-                    ),
+                    assignmentApi.deleteAssignment(timetableId, assignmentId),
                 ),
             );
 
