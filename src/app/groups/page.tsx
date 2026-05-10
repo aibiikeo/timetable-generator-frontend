@@ -10,6 +10,7 @@ import {
     Trash2,
     Users,
 } from "lucide-react";
+
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
@@ -63,7 +64,8 @@ export default function GroupsPage() {
 
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [currentGroup, setCurrentGroup] = useState<StudyGroupResponse | null>(null);
+    const [currentGroup, setCurrentGroup] =
+        useState<StudyGroupResponse | null>(null);
 
     const [formData, setFormData] = useState<FormDataState>(EMPTY_FORM);
 
@@ -350,6 +352,23 @@ export default function GroupsPage() {
         );
     };
 
+    const openCreateModal = () => {
+        setError("");
+        resetForm();
+        setIsCreateModalOpen(true);
+    };
+
+    const closeCreateModal = () => {
+        setIsCreateModalOpen(false);
+        resetForm();
+    };
+
+    const closeEditModal = () => {
+        setIsEditModalOpen(false);
+        setCurrentGroup(null);
+        resetForm();
+    };
+
     return (
         <AppShell>
             <PageHeader
@@ -357,13 +376,7 @@ export default function GroupsPage() {
                 title="Study Groups"
                 description="Manage student groups and link them to the correct major."
                 actions={
-                    <Button
-                        onClick={() => {
-                            setError("");
-                            resetForm();
-                            setIsCreateModalOpen(true);
-                        }}
-                    >
+                    <Button onClick={openCreateModal}>
                         <Plus className="h-4 w-4" />
                         New group
                     </Button>
@@ -415,7 +428,9 @@ export default function GroupsPage() {
                         <Badge variant="secondary">Bulk</Badge>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-bold">{selectedGroups.length}</div>
+                        <div className="text-3xl font-bold">
+                            {selectedGroups.length}
+                        </div>
                         <p className="mt-1 text-xs text-muted-foreground">
                             Selected rows
                         </p>
@@ -437,10 +452,7 @@ export default function GroupsPage() {
                         </div>
 
                         {selectedGroups.length > 0 && (
-                            <Button
-                                variant="destructive"
-                                onClick={handleDeleteSelected}
-                            >
+                            <Button variant="destructive" onClick={handleDeleteSelected}>
                                 <Trash2 className="h-4 w-4" />
                                 Delete selected ({selectedGroups.length})
                             </Button>
@@ -461,11 +473,7 @@ export default function GroupsPage() {
                             description="Create a study group or change the search query."
                             icon={<Layers3 className="h-7 w-7" />}
                             actionLabel="New group"
-                            onAction={() => {
-                                setError("");
-                                resetForm();
-                                setIsCreateModalOpen(true);
-                            }}
+                            onAction={openCreateModal}
                         />
                     ) : (
                         <div className="custom-scrollbar overflow-x-auto">
@@ -476,7 +484,8 @@ export default function GroupsPage() {
                                         <input
                                             type="checkbox"
                                             checked={
-                                                selectedGroups.length === sortedGroups.length &&
+                                                selectedGroups.length ===
+                                                sortedGroups.length &&
                                                 sortedGroups.length > 0
                                             }
                                             onChange={handleSelectAll}
@@ -493,9 +502,14 @@ export default function GroupsPage() {
                                         {getSortLabel("course", "Course")}
                                     </th>
                                     <th className="py-3 text-center">
-                                        {getSortLabel("studentCount", "Students")}
+                                        {getSortLabel(
+                                            "studentCount",
+                                            "Students",
+                                        )}
                                     </th>
-                                    <th className="py-3 text-right">Actions</th>
+                                    <th className="py-3 text-right">
+                                        Actions
+                                    </th>
                                 </tr>
                                 </thead>
 
@@ -508,14 +522,20 @@ export default function GroupsPage() {
                                         <td className="py-4">
                                             <input
                                                 type="checkbox"
-                                                checked={selectedGroups.includes(group.id)}
-                                                onChange={() => handleSelectGroup(group.id)}
+                                                checked={selectedGroups.includes(
+                                                    group.id,
+                                                )}
+                                                onChange={() =>
+                                                    handleSelectGroup(group.id)
+                                                }
                                                 className="h-4 w-4 rounded border-gray-300"
                                             />
                                         </td>
 
                                         <td className="py-4">
-                                            <div className="font-medium">{group.name}</div>
+                                            <div className="font-medium">
+                                                {group.name}
+                                            </div>
                                             <div className="text-xs text-muted-foreground">
                                                 ID: {group.id}
                                             </div>
@@ -524,11 +544,14 @@ export default function GroupsPage() {
                                         <td className="py-4">
                                             <div className="font-medium">
                                                 {group.majorName ||
-                                                    majorsMap.get(group.majorId) ||
+                                                    majorsMap.get(
+                                                        group.majorId,
+                                                    ) ||
                                                     "Unknown"}
                                             </div>
                                             <div className="text-xs text-muted-foreground">
-                                                {group.departmentName || "No department"}
+                                                {group.departmentName ||
+                                                    "No department"}
                                             </div>
                                         </td>
 
@@ -547,7 +570,9 @@ export default function GroupsPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon-sm"
-                                                    onClick={() => handleEdit(group)}
+                                                    onClick={() =>
+                                                        handleEdit(group)
+                                                    }
                                                     aria-label="Edit group"
                                                 >
                                                     <Edit className="h-4 w-4" />
@@ -556,7 +581,9 @@ export default function GroupsPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon-sm"
-                                                    onClick={() => handleDelete(group)}
+                                                    onClick={() =>
+                                                        handleDelete(group)
+                                                    }
                                                     aria-label="Delete group"
                                                     className="text-red-600 hover:bg-red-50 hover:text-red-700"
                                                 >
@@ -573,28 +600,14 @@ export default function GroupsPage() {
                 </CardContent>
             </Card>
 
-            {isCreateModalOpen && (
+            {(isCreateModalOpen || isEditModalOpen) && (
                 <GroupModal
-                    title="Create Study Group"
+                    title={isCreateModalOpen ? "Create Study Group" : "Edit Study Group"}
                     formData={formData}
                     majors={majors}
-                    onClose={() => setIsCreateModalOpen(false)}
-                    onSubmit={handleCreateSubmit}
                     onChange={handleInputChange}
-                />
-            )}
-
-            {isEditModalOpen && currentGroup && (
-                <GroupModal
-                    title="Edit Study Group"
-                    formData={formData}
-                    majors={majors}
-                    onClose={() => {
-                        setIsEditModalOpen(false);
-                        setCurrentGroup(null);
-                    }}
-                    onSubmit={handleEditSubmit}
-                    onChange={handleInputChange}
+                    onClose={isCreateModalOpen ? closeCreateModal : closeEditModal}
+                    onSubmit={isCreateModalOpen ? handleCreateSubmit : handleEditSubmit}
                 />
             )}
         </AppShell>
@@ -619,70 +632,62 @@ function GroupModal({
                         onChange,
                     }: GroupModalProps) {
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-md rounded-2xl border border-border bg-card shadow-2xl">
-                <div className="p-6">
-                    <div className="mb-6 flex items-center justify-between">
-                        <div>
-                            <h3 className="text-lg font-semibold text-foreground">
-                                {title}
-                            </h3>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                                Group must be linked to a major.
-                            </p>
-                        </div>
-
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={onClose}
-                            aria-label="Close modal"
-                        >
-                            ✕
-                        </Button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+            <div className="glass-card w-full max-w-lg rounded-2xl bg-card p-6 shadow-2xl">
+                <div className="mb-6 flex items-start justify-between gap-4">
+                    <div>
+                        <h3 className="text-lg font-semibold">{title}</h3>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            Link the group to a major and set course details.
+                        </p>
                     </div>
 
-                    <form onSubmit={onSubmit} className="space-y-4">
-                        <div>
-                            <label className="mb-1 block text-sm font-medium text-foreground">
-                                Group name *
-                            </label>
-                            <Input
-                                type="text"
-                                name="name"
-                                value={formData.name}
-                                onChange={onChange}
-                                placeholder="Example: COM-22"
-                                required
-                                autoFocus
-                            />
-                        </div>
+                    <Button type="button" variant="ghost" size="icon" onClick={onClose}>
+                        ✕
+                    </Button>
+                </div>
 
-                        <div>
-                            <label className="mb-1 block text-sm font-medium text-foreground">
-                                Major *
-                            </label>
-                            <select
-                                name="majorId"
-                                value={formData.majorId}
-                                onChange={onChange}
-                                className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                required
-                            >
-                                <option value={0}>Select major</option>
-                                {majors.map((major) => (
-                                    <option key={major.id} value={major.id}>
-                                        {major.shortName
-                                            ? `${major.shortName} — ${major.name}`
-                                            : major.name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
+                <form onSubmit={onSubmit} className="space-y-4">
+                    <div>
+                        <label className="mb-2 block text-sm font-medium">
+                            Group name *
+                        </label>
+                        <Input
+                            type="text"
+                            name="name"
+                            value={formData.name}
+                            onChange={onChange}
+                            placeholder="Example: COM-22"
+                            required
+                            autoFocus
+                        />
+                    </div>
 
+                    <div>
+                        <label className="mb-2 block text-sm font-medium">
+                            Major *
+                        </label>
+                        <select
+                            name="majorId"
+                            value={formData.majorId}
+                            onChange={onChange}
+                            className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            required
+                        >
+                            <option value={0}>Select major</option>
+                            {majors.map((major) => (
+                                <option key={major.id} value={major.id}>
+                                    {major.shortName
+                                        ? `${major.shortName} — ${major.name}`
+                                        : major.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
                         <div>
-                            <label className="mb-1 block text-sm font-medium text-foreground">
+                            <label className="mb-2 block text-sm font-medium">
                                 Course *
                             </label>
                             <Input
@@ -697,7 +702,7 @@ function GroupModal({
                         </div>
 
                         <div>
-                            <label className="mb-1 block text-sm font-medium text-foreground">
+                            <label className="mb-2 block text-sm font-medium">
                                 Student count *
                             </label>
                             <Input
@@ -709,20 +714,16 @@ function GroupModal({
                                 required
                             />
                         </div>
+                    </div>
 
-                        <div className="mt-8 flex justify-end gap-3">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={onClose}
-                            >
-                                Cancel
-                            </Button>
+                    <div className="flex justify-end gap-3 pt-2">
+                        <Button type="button" variant="outline" onClick={onClose}>
+                            Cancel
+                        </Button>
 
-                            <Button type="submit">Save</Button>
-                        </div>
-                    </form>
-                </div>
+                        <Button type="submit">Save</Button>
+                    </div>
+                </form>
             </div>
         </div>
     );
