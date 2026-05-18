@@ -26,10 +26,11 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     DeleteMode,
-    MajorResponse,
-    StudyGroupResponse,
+    getApiErrorMessage,
     groupApi,
     majorApi,
+    MajorResponse,
+    StudyGroupResponse,
 } from "@/lib";
 
 type SortField = "name" | "major" | "course" | "studentCount";
@@ -141,8 +142,7 @@ export default function GroupsPage() {
             setGroups(groupsData);
             setMajors(majorsData);
         } catch (err) {
-            console.error("Error loading study groups:", err);
-            setError("Failed to load study groups");
+            setError(getApiErrorMessage(err, "Failed to load study groups"));
         } finally {
             if (initial) setLoading(false);
         }
@@ -241,9 +241,8 @@ export default function GroupsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error creating study group:", err);
-            setError(err.response?.data?.message || "Failed to create study group");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to create study group"));
         }
     };
 
@@ -268,9 +267,8 @@ export default function GroupsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error updating study group:", err);
-            setError(err.response?.data?.message || "Failed to update study group");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to update study group"));
         }
     };
 
@@ -299,11 +297,12 @@ export default function GroupsPage() {
             await groupApi.deleteGroup(group.id, mode);
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error deleting study group:", err);
+        } catch (err) {
             setError(
-                err.response?.data?.message ||
-                "Failed to delete study group. It may have related assignments or lessons.",
+                getApiErrorMessage(
+                    err,
+                    "Failed to delete study group. It may have related assignments or lessons.",
+                ),
             );
         }
     };
@@ -331,8 +330,13 @@ export default function GroupsPage() {
             setSelectedGroups([]);
 
             await loadData();
-        } catch {
-            setError("Unexpected error while deleting study groups");
+        } catch (err) {
+            setError(
+                getApiErrorMessage(
+                    err,
+                    "Unexpected error while deleting study groups",
+                ),
+            );
         }
     };
 

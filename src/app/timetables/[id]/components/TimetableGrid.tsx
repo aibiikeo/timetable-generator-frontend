@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, DoorOpen, UserRound } from "lucide-react";
+import { CalendarDays, DoorOpen, Plus, UserRound } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import type {
@@ -11,32 +11,72 @@ import type {
 } from "@/lib/types";
 import { DAYS_OF_WEEK, DAYS_SHORT } from "@/lib/constants";
 
+type GridDensity = "compact" | "comfortable" | "large";
+
 interface TimetableGridProps {
     lessons: LessonResponse[];
     groups: StudyGroupResponse[];
     selectedDay: DayOfWeek | "ALL";
     timeSlots: TimeSlot[];
+    density?: GridDensity;
     onCellClick?: (
         group: StudyGroupResponse,
         slot: TimeSlot,
         day?: DayOfWeek,
     ) => void;
     onLessonClick?: (lesson: LessonResponse) => void;
+    onTimeSlotDoubleClick?: (slot: TimeSlot) => void;
 }
 
 const VISIBLE_DAYS = DAYS_OF_WEEK.filter((day) => day !== "SUNDAY");
 
+const DAY_COLUMN_WIDTH = 132;
+const GROUP_COLUMN_WIDTH = 188;
+
+const DENSITY_CONFIG: Record<
+    GridDensity,
+    {
+        slotWidth: number;
+        cellHeight: string;
+        cardPadding: string;
+        titleSize: string;
+        metaSize: string;
+    }
+> = {
+    compact: {
+        slotWidth: 132,
+        cellHeight: "h-24",
+        cardPadding: "p-2",
+        titleSize: "text-xs",
+        metaSize: "text-[11px]",
+    },
+    comfortable: {
+        slotWidth: 170,
+        cellHeight: "h-32",
+        cardPadding: "p-3",
+        titleSize: "text-sm",
+        metaSize: "text-xs",
+    },
+    large: {
+        slotWidth: 210,
+        cellHeight: "h-40",
+        cardPadding: "p-4",
+        titleSize: "text-sm",
+        metaSize: "text-xs",
+    },
+};
+
 const LESSON_PALETTE = [
-    { bg: "#DBEAFE", border: "#93C5FD", text: "#1E3A8A", soft: "#EFF6FF" },
-    { bg: "#D1FAE5", border: "#6EE7B7", text: "#065F46", soft: "#ECFDF5" },
-    { bg: "#EDE9FE", border: "#C4B5FD", text: "#5B21B6", soft: "#F5F3FF" },
-    { bg: "#FEF3C7", border: "#FCD34D", text: "#92400E", soft: "#FFFBEB" },
-    { bg: "#FFE4E6", border: "#FDA4AF", text: "#9F1239", soft: "#FFF1F2" },
-    { bg: "#CFFAFE", border: "#67E8F9", text: "#155E75", soft: "#ECFEFF" },
-    { bg: "#FAE8FF", border: "#F0ABFC", text: "#86198F", soft: "#FDF4FF" },
-    { bg: "#ECFCCB", border: "#BEF264", text: "#3F6212", soft: "#F7FEE7" },
-    { bg: "#FCE7F3", border: "#F9A8D4", text: "#9D174D", soft: "#FDF2F8" },
-    { bg: "#E0E7FF", border: "#A5B4FC", text: "#3730A3", soft: "#EEF2FF" },
+    { bg: "#DBEAFE", border: "#93C5FD", text: "#1E3A8A" },
+    { bg: "#D1FAE5", border: "#6EE7B7", text: "#065F46" },
+    { bg: "#EDE9FE", border: "#C4B5FD", text: "#5B21B6" },
+    { bg: "#FEF3C7", border: "#FCD34D", text: "#92400E" },
+    { bg: "#FFE4E6", border: "#FDA4AF", text: "#9F1239" },
+    { bg: "#CFFAFE", border: "#67E8F9", text: "#155E75" },
+    { bg: "#FAE8FF", border: "#F0ABFC", text: "#86198F" },
+    { bg: "#ECFCCB", border: "#BEF264", text: "#3F6212" },
+    { bg: "#FCE7F3", border: "#F9A8D4", text: "#9D174D" },
+    { bg: "#E0E7FF", border: "#A5B4FC", text: "#3730A3" },
 ];
 
 function formatTime(time: string) {
@@ -85,8 +125,8 @@ function getLessonForCell(
 
 function sortTimeSlots(timeSlots: TimeSlot[]) {
     return [...timeSlots].sort((a, b) => {
-        const orderA = (a as unknown as { order?: number }).order ?? 0;
-        const orderB = (b as unknown as { order?: number }).order ?? 0;
+        const orderA = a.order ?? 0;
+        const orderB = b.order ?? 0;
 
         if (orderA !== orderB) return orderA - orderB;
 
@@ -114,24 +154,67 @@ function EmptyGridState({
     );
 }
 
+function TimeSlotHeader({
+                            slot,
+                            density,
+                            onDoubleClick,
+                        }: {
+    slot: TimeSlot;
+    density: GridDensity;
+    onDoubleClick?: () => void;
+}) {
+    const config = DENSITY_CONFIG[density];
+
+    return (
+        <th
+            style={{ minWidth: config.slotWidth, width: config.slotWidth }}
+            onDoubleClick={onDoubleClick}
+            title="Double click to edit time slot"
+            className="sticky top-0 z-30 border-b border-r border-border bg-slate-950 px-3 py-3 text-left font-semibold text-white last:border-r-0"
+        >
+            <button
+                type="button"
+                onDoubleClick={onDoubleClick}
+                className="w-full rounded-lg text-left outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/40"
+            >
+                <div>
+                    {formatTime(slot.startTime)}–{formatTime(slot.endTime)}
+                </div>
+
+                {slot.description && (
+                    <div className="mt-1 line-clamp-1 text-xs font-normal text-slate-300">
+                        {slot.description}
+                    </div>
+                )}
+            </button>
+        </th>
+    );
+}
+
 function LessonCard({
                         lesson,
-                        compact = false,
+                        density,
                         showDay = false,
                         onClick,
                     }: {
     lesson: LessonResponse;
-    compact?: boolean;
+    density: GridDensity;
     showDay?: boolean;
     onClick?: () => void;
 }) {
     const color = getLessonColor(lesson);
+    const config = DENSITY_CONFIG[density];
 
     return (
         <button
             type="button"
             onClick={onClick}
-            className="h-full min-h-[112px] w-full rounded-2xl border p-3 text-left shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-md"
+            title={`${lesson.subjectName}\n${lesson.teacherName}\n${lesson.groupNames.join(", ")}`}
+            className={[
+                "h-full min-h-full w-full rounded-2xl border text-left shadow-sm outline-none transition",
+                "hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring",
+                config.cardPadding,
+            ].join(" ")}
             style={{
                 backgroundColor: color.bg,
                 borderColor: color.border,
@@ -141,21 +224,30 @@ function LessonCard({
             <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                     <div
-                        className={
-                            compact
-                                ? "line-clamp-2 text-xs font-semibold leading-5"
-                                : "line-clamp-2 text-sm font-semibold leading-5"
-                        }
+                        className={[
+                            "line-clamp-2 font-semibold leading-5",
+                            config.titleSize,
+                        ].join(" ")}
                     >
                         {lesson.subjectName}
                     </div>
 
-                    <div className="mt-1 flex items-center gap-1 text-xs">
+                    <div
+                        className={[
+                            "mt-1 flex items-center gap-1",
+                            config.metaSize,
+                        ].join(" ")}
+                    >
                         <UserRound className="h-3.5 w-3.5 shrink-0" />
                         <span className="truncate">{lesson.teacherName}</span>
                     </div>
 
-                    <div className="mt-1 flex items-center gap-1 text-xs">
+                    <div
+                        className={[
+                            "mt-1 flex items-center gap-1",
+                            config.metaSize,
+                        ].join(" ")}
+                    >
                         <DoorOpen className="h-3.5 w-3.5 shrink-0" />
                         <span className="truncate">
                             {lesson.roomName || "No room"}
@@ -190,24 +282,68 @@ function LessonCard({
                 >
                     {lesson.durationHours} slot(s)
                 </Badge>
+
+                <Badge
+                    variant="outline"
+                    className="border-white/60 bg-white/60"
+                    style={{ color: color.text }}
+                >
+                    SCHEDULED
+                </Badge>
             </div>
         </button>
     );
 }
 
 function EmptyCell({
+                       density,
                        onClick,
                    }: {
+    density: GridDensity;
     onClick?: () => void;
 }) {
+    const config = DENSITY_CONFIG[density];
+
     return (
         <button
             type="button"
             onClick={onClick}
-            className="flex h-full min-h-[112px] w-full items-center justify-center rounded-2xl border border-dashed border-border bg-card/70 text-xs text-muted-foreground transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+            title="Create lesson"
+            className={[
+                "group flex h-full min-h-full w-full items-center justify-center rounded-2xl border border-dashed border-border bg-card/60 text-muted-foreground outline-none transition",
+                "hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus-visible:ring-2 focus-visible:ring-ring",
+                config.cellHeight,
+            ].join(" ")}
         >
-            Empty
+            <span className="flex h-9 w-9 items-center justify-center rounded-full border border-dashed border-current bg-background/60 transition-transform group-hover:scale-110">
+                <Plus className="h-4 w-4" />
+            </span>
         </button>
+    );
+}
+
+function GroupHeaderCell({
+                             group,
+                             left,
+                             zIndex,
+                         }: {
+    group: StudyGroupResponse;
+    left: number;
+    zIndex: number;
+}) {
+    return (
+        <th
+            style={{ left, zIndex, width: GROUP_COLUMN_WIDTH, minWidth: GROUP_COLUMN_WIDTH }}
+            className="sticky border-b border-r border-border bg-white px-4 py-3 text-left align-top shadow-[1px_0_0_var(--border)]"
+        >
+            <div className="line-clamp-2 font-semibold">{group.name}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+                {group.studentCount} students
+            </div>
+            <Badge variant="outline" className="mt-2">
+                Course {group.course}
+            </Badge>
+        </th>
     );
 }
 
@@ -216,10 +352,13 @@ export default function TimetableGrid({
                                           groups,
                                           selectedDay,
                                           timeSlots,
+                                          density = "comfortable",
                                           onCellClick,
                                           onLessonClick,
+                                          onTimeSlotDoubleClick,
                                       }: TimetableGridProps) {
     const sortedSlots = sortTimeSlots(timeSlots);
+    const config = DENSITY_CONFIG[density];
 
     if (groups.length === 0) {
         return (
@@ -260,11 +399,18 @@ export default function TimetableGrid({
                     <td
                         key={`${day || "single"}-${group.id}-${slot.id}`}
                         colSpan={span}
-                        className="h-32 border-b border-r border-border bg-background/40 p-2 align-top last:border-r-0"
+                        style={{
+                            minWidth: config.slotWidth * span,
+                        }}
+                        className={[
+                            "border-b border-r border-border bg-background/40 p-2 align-top last:border-r-0",
+                            config.cellHeight,
+                        ].join(" ")}
                     >
                         <LessonCard
                             lesson={lesson}
-                            compact={selectedDay === "ALL"}
+                            density={density}
+                            showDay={selectedDay === "ALL"}
                             onClick={() => onLessonClick?.(lesson)}
                         />
                     </td>,
@@ -275,9 +421,16 @@ export default function TimetableGrid({
                 cells.push(
                     <td
                         key={`${day || "single"}-${group.id}-${slot.id}`}
-                        className="h-32 border-b border-r border-border bg-background/40 p-2 align-top last:border-r-0"
+                        style={{
+                            minWidth: config.slotWidth,
+                        }}
+                        className={[
+                            "border-b border-r border-border bg-background/40 p-2 align-top last:border-r-0",
+                            config.cellHeight,
+                        ].join(" ")}
                     >
                         <EmptyCell
+                            density={density}
                             onClick={() => onCellClick?.(group, slot, day)}
                         />
                     </td>,
@@ -291,36 +444,51 @@ export default function TimetableGrid({
     };
 
     if (selectedDay === "ALL") {
+        const minWidth =
+            DAY_COLUMN_WIDTH +
+            GROUP_COLUMN_WIDTH +
+            sortedSlots.length * config.slotWidth;
+
         return (
             <div className="h-full overflow-hidden rounded-2xl border border-border bg-card">
                 <div className="custom-scrollbar h-full overflow-auto">
-                    <table className="w-full min-w-[1320px] border-separate border-spacing-0 text-sm">
+                    <table
+                        style={{ minWidth }}
+                        className="w-full border-separate border-spacing-0 text-sm"
+                    >
                         <thead>
                         <tr>
-                            <th className="sticky left-0 top-0 z-40 w-32 border-b border-r border-border bg-slate-950 px-4 py-3 text-left font-semibold text-white">
+                            <th
+                                style={{
+                                    left: 0,
+                                    width: DAY_COLUMN_WIDTH,
+                                    minWidth: DAY_COLUMN_WIDTH,
+                                }}
+                                className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 px-4 py-3 text-left font-semibold text-white"
+                            >
                                 Day
                             </th>
 
-                            <th className="sticky left-32 top-0 z-40 w-44 border-b border-r border-border bg-slate-950 px-4 py-3 text-left font-semibold text-white">
+                            <th
+                                style={{
+                                    left: DAY_COLUMN_WIDTH,
+                                    width: GROUP_COLUMN_WIDTH,
+                                    minWidth: GROUP_COLUMN_WIDTH,
+                                }}
+                                className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 px-4 py-3 text-left font-semibold text-white"
+                            >
                                 Group
                             </th>
 
                             {sortedSlots.map((slot) => (
-                                <th
+                                <TimeSlotHeader
                                     key={slot.id}
-                                    className="sticky top-0 z-30 min-w-[170px] border-b border-r border-border bg-slate-950 px-3 py-3 text-left font-semibold text-white last:border-r-0"
-                                >
-                                    <div>
-                                        {formatTime(slot.startTime)}–
-                                        {formatTime(slot.endTime)}
-                                    </div>
-
-                                    {(slot as unknown as { label?: string }).label && (
-                                        <div className="mt-1 text-xs font-normal text-slate-300">
-                                            {(slot as unknown as { label?: string }).label}
-                                        </div>
-                                    )}
-                                </th>
+                                    slot={slot}
+                                    density={density}
+                                    onDoubleClick={() =>
+                                        onTimeSlotDoubleClick?.(slot)
+                                    }
+                                />
                             ))}
                         </tr>
                         </thead>
@@ -332,7 +500,13 @@ export default function TimetableGrid({
                                     {groupIndex === 0 && (
                                         <th
                                             rowSpan={groups.length}
-                                            className="sticky left-0 z-30 border-b border-r border-border bg-blue-100 px-4 py-3 text-left align-middle font-semibold text-blue-950"
+                                            style={{
+                                                left: 0,
+                                                zIndex: 40,
+                                                width: DAY_COLUMN_WIDTH,
+                                                minWidth: DAY_COLUMN_WIDTH,
+                                            }}
+                                            className="sticky border-b border-r border-border bg-blue-100 px-4 py-3 text-left align-middle font-semibold text-blue-950 shadow-[1px_0_0_var(--border)]"
                                         >
                                             <div className="text-sm">
                                                 {DAYS_SHORT[day] || day}
@@ -343,17 +517,11 @@ export default function TimetableGrid({
                                         </th>
                                     )}
 
-                                    <th className="sticky left-32 z-20 border-b border-r border-border bg-white px-4 py-3 text-left align-top">
-                                        <div className="font-semibold">
-                                            {group.name}
-                                        </div>
-                                        <div className="mt-1 text-xs text-muted-foreground">
-                                            {group.studentCount} students
-                                        </div>
-                                        <Badge variant="outline" className="mt-2">
-                                            Course {group.course}
-                                        </Badge>
-                                    </th>
+                                    <GroupHeaderCell
+                                        group={group}
+                                        left={DAY_COLUMN_WIDTH}
+                                        zIndex={30}
+                                    />
 
                                     {renderCellsForGroupAndDay(group, day)}
                                 </tr>
@@ -366,32 +534,38 @@ export default function TimetableGrid({
         );
     }
 
+    const minWidth =
+        GROUP_COLUMN_WIDTH + sortedSlots.length * config.slotWidth;
+
     return (
         <div className="h-full overflow-hidden rounded-2xl border border-border bg-card">
             <div className="custom-scrollbar h-full overflow-auto">
-                <table className="w-full min-w-[1120px] border-separate border-spacing-0 text-sm">
+                <table
+                    style={{ minWidth }}
+                    className="w-full border-separate border-spacing-0 text-sm"
+                >
                     <thead>
                     <tr>
-                        <th className="sticky left-0 top-0 z-30 w-44 border-b border-r border-border bg-slate-950 px-4 py-3 text-left font-semibold text-white">
+                        <th
+                            style={{
+                                left: 0,
+                                width: GROUP_COLUMN_WIDTH,
+                                minWidth: GROUP_COLUMN_WIDTH,
+                            }}
+                            className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 px-4 py-3 text-left font-semibold text-white"
+                        >
                             Group
                         </th>
 
                         {sortedSlots.map((slot) => (
-                            <th
+                            <TimeSlotHeader
                                 key={slot.id}
-                                className="sticky top-0 z-20 min-w-[180px] border-b border-r border-border bg-slate-950 px-3 py-3 text-left font-semibold text-white last:border-r-0"
-                            >
-                                <div>
-                                    {formatTime(slot.startTime)}–
-                                    {formatTime(slot.endTime)}
-                                </div>
-
-                                {(slot as unknown as { label?: string }).label && (
-                                    <div className="mt-1 text-xs font-normal text-slate-300">
-                                        {(slot as unknown as { label?: string }).label}
-                                    </div>
-                                )}
-                            </th>
+                                slot={slot}
+                                density={density}
+                                onDoubleClick={() =>
+                                    onTimeSlotDoubleClick?.(slot)
+                                }
+                            />
                         ))}
                     </tr>
                     </thead>
@@ -399,15 +573,11 @@ export default function TimetableGrid({
                     <tbody>
                     {groups.map((group) => (
                         <tr key={group.id}>
-                            <th className="sticky left-0 z-10 border-b border-r border-border bg-white px-4 py-3 text-left align-top">
-                                <div className="font-semibold">{group.name}</div>
-                                <div className="mt-1 text-xs text-muted-foreground">
-                                    {group.studentCount} students
-                                </div>
-                                <Badge variant="outline" className="mt-2">
-                                    Course {group.course}
-                                </Badge>
-                            </th>
+                            <GroupHeaderCell
+                                group={group}
+                                left={0}
+                                zIndex={30}
+                            />
 
                             {renderCellsForGroupAndDay(group, selectedDay)}
                         </tr>

@@ -21,6 +21,7 @@ import {
     FacultyResponse,
     departmentApi,
     facultyApi,
+    getApiErrorMessage,
 } from "@/lib";
 
 type SortField = "name" | "faculty";
@@ -110,8 +111,7 @@ export default function DepartmentsPage() {
             setDepartments(departmentsData);
             setFaculties(facultiesData);
         } catch (err) {
-            console.error("Error loading departments:", err);
-            setError("Failed to load departments");
+            setError(getApiErrorMessage(err, "Failed to load departments"));
         } finally {
             if (initial) setLoading(false);
         }
@@ -191,9 +191,8 @@ export default function DepartmentsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error creating department:", err);
-            setError(err.response?.data?.message || "Failed to create department");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to create department"));
         }
     };
 
@@ -216,9 +215,8 @@ export default function DepartmentsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error updating department:", err);
-            setError(err.response?.data?.message || "Failed to update department");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to update department"));
         }
     };
 
@@ -241,11 +239,12 @@ export default function DepartmentsPage() {
 
             await departmentApi.deleteDepartment(department.id);
             await loadData();
-        } catch (err: any) {
-            console.error("Error deleting department:", err);
+        } catch (err) {
             setError(
-                err.response?.data?.message ||
-                "Failed to delete department. It may have related majors or groups.",
+                getApiErrorMessage(
+                    err,
+                    "Failed to delete department. It may have related majors or groups.",
+                ),
             );
         }
     };
@@ -272,8 +271,13 @@ export default function DepartmentsPage() {
 
             setSelectedDepartments([]);
             await loadData();
-        } catch {
-            setError("Unexpected error while deleting departments");
+        } catch (err) {
+            setError(
+                getApiErrorMessage(
+                    err,
+                    "Unexpected error while deleting departments",
+                ),
+            );
         }
     };
 
@@ -351,7 +355,7 @@ export default function DepartmentsPage() {
                         <CardTitle className="text-sm font-medium text-muted-foreground">
                             Faculties
                         </CardTitle>
-                        <Badge variant="info">Linked</Badge>
+                        <Badge variant="info">Parent</Badge>
                     </CardHeader>
                     <CardContent>
                         <div className="text-3xl font-bold">{faculties.length}</div>
@@ -369,7 +373,9 @@ export default function DepartmentsPage() {
                         <Badge variant="secondary">Bulk</Badge>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-bold">{selectedDepartments.length}</div>
+                        <div className="text-3xl font-bold">
+                            {selectedDepartments.length}
+                        </div>
                         <p className="mt-1 text-xs text-muted-foreground">
                             Selected rows
                         </p>
@@ -437,7 +443,9 @@ export default function DepartmentsPage() {
                                         {getSortLabel("faculty", "Faculty")}
                                     </th>
                                     <th className="py-3">ID</th>
-                                    <th className="py-3 text-right">Actions</th>
+                                    <th className="py-3 text-right">
+                                        Actions
+                                    </th>
                                 </tr>
                                 </thead>
 
@@ -450,14 +458,20 @@ export default function DepartmentsPage() {
                                         <td className="py-4">
                                             <input
                                                 type="checkbox"
-                                                checked={selectedDepartments.includes(department.id)}
-                                                onChange={() => handleSelectDepartment(department.id)}
+                                                checked={selectedDepartments.includes(
+                                                    department.id,
+                                                )}
+                                                onChange={() =>
+                                                    handleSelectDepartment(department.id)
+                                                }
                                                 className="h-4 w-4 rounded border-gray-300"
                                             />
                                         </td>
 
                                         <td className="py-4">
-                                            <div className="font-medium">{department.name}</div>
+                                            <div className="font-medium">
+                                                {department.name}
+                                            </div>
                                         </td>
 
                                         <td className="py-4">
@@ -467,7 +481,9 @@ export default function DepartmentsPage() {
                                         </td>
 
                                         <td className="py-4">
-                                            <Badge variant="outline">#{department.id}</Badge>
+                                            <Badge variant="outline">
+                                                #{department.id}
+                                            </Badge>
                                         </td>
 
                                         <td className="py-4">
@@ -475,7 +491,9 @@ export default function DepartmentsPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon-sm"
-                                                    onClick={() => handleEdit(department)}
+                                                    onClick={() =>
+                                                        handleEdit(department)
+                                                    }
                                                     aria-label="Edit department"
                                                 >
                                                     <Edit className="h-4 w-4" />
@@ -484,7 +502,9 @@ export default function DepartmentsPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon-sm"
-                                                    onClick={() => handleDelete(department)}
+                                                    onClick={() =>
+                                                        handleDelete(department)
+                                                    }
                                                     aria-label="Delete department"
                                                     className="text-red-600 hover:bg-red-50 hover:text-red-700"
                                                 >
@@ -503,12 +523,20 @@ export default function DepartmentsPage() {
 
             {(isCreateModalOpen || isEditModalOpen) && (
                 <DepartmentModal
-                    title={isCreateModalOpen ? "Create Department" : "Edit Department"}
+                    title={
+                        isCreateModalOpen
+                            ? "Create Department"
+                            : "Edit Department"
+                    }
                     formData={formData}
                     faculties={faculties}
                     onChange={handleInputChange}
                     onClose={isCreateModalOpen ? closeCreateModal : closeEditModal}
-                    onSubmit={isCreateModalOpen ? handleCreateSubmit : handleEditSubmit}
+                    onSubmit={
+                        isCreateModalOpen
+                            ? handleCreateSubmit
+                            : handleEditSubmit
+                    }
                 />
             )}
         </AppShell>

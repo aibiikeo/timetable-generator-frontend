@@ -14,4 +14,6 @@ export { timeSlotApi } from "./timeSlotApi";
 export { timetableApi } from "./timetableApi";
 export { userApi } from "./userApi";
 
+export { getApiErrorMessage } from "./apiError";
+
 export type * from "./types";

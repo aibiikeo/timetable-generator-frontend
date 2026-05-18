@@ -23,6 +23,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+    getApiErrorMessage,
     RoomResponse,
     RoomType,
     roomApi,
@@ -106,8 +107,7 @@ export default function RoomsPage() {
             const data = await roomApi.getRooms();
             setRooms(data);
         } catch (err) {
-            console.error("Error loading rooms:", err);
-            setError("Failed to load rooms");
+            setError(getApiErrorMessage(err, "Failed to load rooms"));
         } finally {
             if (initial) setLoading(false);
         }
@@ -198,9 +198,8 @@ export default function RoomsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error creating room:", err);
-            setError(err.response?.data?.message || "Failed to create room");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to create room"));
         }
     };
 
@@ -224,9 +223,8 @@ export default function RoomsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error updating room:", err);
-            setError(err.response?.data?.message || "Failed to update room");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to update room"));
         }
     };
 
@@ -250,11 +248,12 @@ export default function RoomsPage() {
 
             await roomApi.deleteRoom(room.id);
             await loadData();
-        } catch (err: any) {
-            console.error("Error deleting room:", err);
+        } catch (err) {
             setError(
-                err.response?.data?.message ||
-                "Failed to delete room. It may be used in lessons.",
+                getApiErrorMessage(
+                    err,
+                    "Failed to delete room. It may be used in lessons.",
+                ),
             );
         }
     };
@@ -279,8 +278,13 @@ export default function RoomsPage() {
 
             setSelectedRooms([]);
             await loadData();
-        } catch {
-            setError("Unexpected error while deleting rooms");
+        } catch (err) {
+            setError(
+                getApiErrorMessage(
+                    err,
+                    "Unexpected error while deleting rooms",
+                ),
+            );
         }
     };
 
@@ -429,20 +433,32 @@ export default function RoomsPage() {
                                         <input
                                             type="checkbox"
                                             checked={
-                                                selectedRooms.length === sortedRooms.length &&
+                                                selectedRooms.length ===
+                                                sortedRooms.length &&
                                                 sortedRooms.length > 0
                                             }
                                             onChange={handleSelectAll}
                                             className="h-4 w-4 rounded border-gray-300"
                                         />
                                     </th>
-                                    <th className="py-3">{getSortLabel("name", "Room")}</th>
+
+                                    <th className="py-3">
+                                        {getSortLabel("name", "Room")}
+                                    </th>
+
                                     <th className="py-3 text-center">
                                         {getSortLabel("capacity", "Capacity")}
                                     </th>
-                                    <th className="py-3">{getSortLabel("type", "Type")}</th>
+
+                                    <th className="py-3">
+                                        {getSortLabel("type", "Type")}
+                                    </th>
+
                                     <th className="py-3">ID</th>
-                                    <th className="py-3 text-right">Actions</th>
+
+                                    <th className="py-3 text-right">
+                                        Actions
+                                    </th>
                                 </tr>
                                 </thead>
 
@@ -462,7 +478,9 @@ export default function RoomsPage() {
                                         </td>
 
                                         <td className="py-4">
-                                            <div className="font-medium">{room.name}</div>
+                                            <div className="font-medium">
+                                                {room.name}
+                                            </div>
                                         </td>
 
                                         <td className="py-4 text-center">
@@ -470,11 +488,15 @@ export default function RoomsPage() {
                                         </td>
 
                                         <td className="py-4">
-                                            <Badge variant="secondary">{room.type}</Badge>
+                                            <Badge variant="secondary">
+                                                {room.type}
+                                            </Badge>
                                         </td>
 
                                         <td className="py-4">
-                                            <Badge variant="outline">#{room.id}</Badge>
+                                            <Badge variant="outline">
+                                                #{room.id}
+                                            </Badge>
                                         </td>
 
                                         <td className="py-4">
@@ -604,6 +626,7 @@ function RoomModal({
                         <Button type="button" variant="outline" onClick={onClose}>
                             Cancel
                         </Button>
+
                         <Button type="submit">Save</Button>
                     </div>
                 </form>

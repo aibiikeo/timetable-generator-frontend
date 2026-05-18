@@ -16,7 +16,7 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FacultyResponse, facultyApi } from "@/lib";
+import { FacultyResponse, facultyApi, getApiErrorMessage } from "@/lib";
 
 type SortField = "name";
 type SortDirection = "asc" | "desc";
@@ -42,7 +42,8 @@ export default function FacultiesPage() {
 
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [currentFaculty, setCurrentFaculty] = useState<FacultyResponse | null>(null);
+    const [currentFaculty, setCurrentFaculty] =
+        useState<FacultyResponse | null>(null);
 
     const [formData, setFormData] = useState<FormDataState>(EMPTY_FORM);
 
@@ -66,6 +67,7 @@ export default function FacultiesPage() {
     const sortedFaculties = useMemo(() => {
         return [...filteredFaculties].sort((a, b) => {
             const direction = sortDirection === "asc" ? 1 : -1;
+
             return a[sortField].localeCompare(b[sortField]) * direction;
         });
     }, [filteredFaculties, sortField, sortDirection]);
@@ -79,8 +81,7 @@ export default function FacultiesPage() {
             const data = await facultyApi.getFaculties();
             setFaculties(data);
         } catch (err) {
-            console.error("Error loading faculties:", err);
-            setError("Failed to load faculties");
+            setError(getApiErrorMessage(err, "Failed to load faculties"));
         } finally {
             if (initial) setLoading(false);
         }
@@ -152,9 +153,8 @@ export default function FacultiesPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error creating faculty:", err);
-            setError(err.response?.data?.message || "Failed to create faculty");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to create faculty"));
         }
     };
 
@@ -176,9 +176,8 @@ export default function FacultiesPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error updating faculty:", err);
-            setError(err.response?.data?.message || "Failed to update faculty");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to update faculty"));
         }
     };
 
@@ -200,11 +199,12 @@ export default function FacultiesPage() {
 
             await facultyApi.deleteFaculty(faculty.id);
             await loadData();
-        } catch (err: any) {
-            console.error("Error deleting faculty:", err);
+        } catch (err) {
             setError(
-                err.response?.data?.message ||
-                "Failed to delete faculty. It may have related departments, majors or groups.",
+                getApiErrorMessage(
+                    err,
+                    "Failed to delete faculty. It may have related departments, majors or groups.",
+                ),
             );
         }
     };
@@ -212,7 +212,9 @@ export default function FacultiesPage() {
     const handleDeleteSelected = async () => {
         if (selectedFaculties.length === 0) return;
 
-        if (!confirm(`Delete ${selectedFaculties.length} selected faculties?`)) return;
+        if (!confirm(`Delete ${selectedFaculties.length} selected faculties?`)) {
+            return;
+        }
 
         try {
             setError("");
@@ -229,8 +231,13 @@ export default function FacultiesPage() {
 
             setSelectedFaculties([]);
             await loadData();
-        } catch {
-            setError("Unexpected error while deleting faculties");
+        } catch (err) {
+            setError(
+                getApiErrorMessage(
+                    err,
+                    "Unexpected error while deleting faculties",
+                ),
+            );
         }
     };
 
@@ -311,7 +318,9 @@ export default function FacultiesPage() {
                         <Badge variant="info">Search</Badge>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-bold">{sortedFaculties.length}</div>
+                        <div className="text-3xl font-bold">
+                            {sortedFaculties.length}
+                        </div>
                         <p className="mt-1 text-xs text-muted-foreground">
                             Matching search
                         </p>
@@ -326,7 +335,9 @@ export default function FacultiesPage() {
                         <Badge variant="secondary">Bulk</Badge>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-bold">{selectedFaculties.length}</div>
+                        <div className="text-3xl font-bold">
+                            {selectedFaculties.length}
+                        </div>
                         <p className="mt-1 text-xs text-muted-foreground">
                             Selected rows
                         </p>
@@ -379,16 +390,21 @@ export default function FacultiesPage() {
                                         <input
                                             type="checkbox"
                                             checked={
-                                                selectedFaculties.length === sortedFaculties.length &&
+                                                selectedFaculties.length ===
+                                                sortedFaculties.length &&
                                                 sortedFaculties.length > 0
                                             }
                                             onChange={handleSelectAll}
                                             className="h-4 w-4 rounded border-gray-300"
                                         />
                                     </th>
-                                    <th className="py-3">{getSortLabel("name", "Faculty")}</th>
+                                    <th className="py-3">
+                                        {getSortLabel("name", "Faculty")}
+                                    </th>
                                     <th className="py-3">ID</th>
-                                    <th className="py-3 text-right">Actions</th>
+                                    <th className="py-3 text-right">
+                                        Actions
+                                    </th>
                                 </tr>
                                 </thead>
 
@@ -401,18 +417,26 @@ export default function FacultiesPage() {
                                         <td className="py-4">
                                             <input
                                                 type="checkbox"
-                                                checked={selectedFaculties.includes(faculty.id)}
-                                                onChange={() => handleSelectFaculty(faculty.id)}
+                                                checked={selectedFaculties.includes(
+                                                    faculty.id,
+                                                )}
+                                                onChange={() =>
+                                                    handleSelectFaculty(faculty.id)
+                                                }
                                                 className="h-4 w-4 rounded border-gray-300"
                                             />
                                         </td>
 
                                         <td className="py-4">
-                                            <div className="font-medium">{faculty.name}</div>
+                                            <div className="font-medium">
+                                                {faculty.name}
+                                            </div>
                                         </td>
 
                                         <td className="py-4">
-                                            <Badge variant="outline">#{faculty.id}</Badge>
+                                            <Badge variant="outline">
+                                                #{faculty.id}
+                                            </Badge>
                                         </td>
 
                                         <td className="py-4">
@@ -420,7 +444,9 @@ export default function FacultiesPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon-sm"
-                                                    onClick={() => handleEdit(faculty)}
+                                                    onClick={() =>
+                                                        handleEdit(faculty)
+                                                    }
                                                     aria-label="Edit faculty"
                                                 >
                                                     <Edit className="h-4 w-4" />
@@ -429,7 +455,9 @@ export default function FacultiesPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon-sm"
-                                                    onClick={() => handleDelete(faculty)}
+                                                    onClick={() =>
+                                                        handleDelete(faculty)
+                                                    }
                                                     aria-label="Delete faculty"
                                                     className="text-red-600 hover:bg-red-50 hover:text-red-700"
                                                 >
@@ -485,7 +513,12 @@ function FacultyModal({
                         </p>
                     </div>
 
-                    <Button type="button" variant="ghost" size="icon" onClick={onClose}>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={onClose}
+                    >
                         ✕
                     </Button>
                 </div>
