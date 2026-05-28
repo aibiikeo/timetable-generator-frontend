@@ -6,7 +6,6 @@ import {
     GraduationCap,
     HelpCircle,
     Home,
-    LibraryBig,
     Presentation,
     School,
     ShieldCheck,
@@ -27,7 +26,6 @@ export const NAV_ITEMS: NavItem[] = [
         icon: Home,
         group: "Main",
     },
-
     {
         title: "Faculties",
         href: "/faculties",
@@ -52,7 +50,6 @@ export const NAV_ITEMS: NavItem[] = [
         icon: Users,
         group: "Academic Structure",
     },
-
     {
         title: "Teachers",
         href: "/teachers",
@@ -71,17 +68,10 @@ export const NAV_ITEMS: NavItem[] = [
         icon: DoorOpen,
         group: "Resources",
     },
-
     {
         title: "Timetables",
         href: "/timetables",
         icon: CalendarDays,
-        group: "Scheduling",
-    },
-    {
-        title: "Lessons",
-        href: "/lessons",
-        icon: LibraryBig,
         group: "Scheduling",
     },
     {
@@ -90,7 +80,6 @@ export const NAV_ITEMS: NavItem[] = [
         icon: ShieldCheck,
         group: "Scheduling",
     },
-
     {
         title: "Users",
         href: "/users",

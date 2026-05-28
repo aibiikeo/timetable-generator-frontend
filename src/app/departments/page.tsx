@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Building2, Edit, Plus, Search, Trash2 } from "lucide-react";
+import { Edit, Plus, Search, Trash2 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -11,7 +11,6 @@ import {
     Card,
     CardContent,
     CardHeader,
-    CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -21,6 +20,7 @@ import {
     FacultyResponse,
     departmentApi,
     facultyApi,
+    getApiErrorMessage,
 } from "@/lib";
 
 type SortField = "name" | "faculty";
@@ -110,8 +110,7 @@ export default function DepartmentsPage() {
             setDepartments(departmentsData);
             setFaculties(facultiesData);
         } catch (err) {
-            console.error("Error loading departments:", err);
-            setError("Failed to load departments");
+            setError(getApiErrorMessage(err, "Failed to load departments"));
         } finally {
             if (initial) setLoading(false);
         }
@@ -142,7 +141,7 @@ export default function DepartmentsPage() {
                 {label}
                 {isActive && (
                     <span className="text-xs">
-                        {sortDirection === "asc" ? "↑" : "↓"}
+                        {sortDirection === "asc" ? "" : ""}
                     </span>
                 )}
             </button>
@@ -191,9 +190,8 @@ export default function DepartmentsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error creating department:", err);
-            setError(err.response?.data?.message || "Failed to create department");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to create department"));
         }
     };
 
@@ -216,9 +214,8 @@ export default function DepartmentsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error updating department:", err);
-            setError(err.response?.data?.message || "Failed to update department");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to update department"));
         }
     };
 
@@ -241,11 +238,12 @@ export default function DepartmentsPage() {
 
             await departmentApi.deleteDepartment(department.id);
             await loadData();
-        } catch (err: any) {
-            console.error("Error deleting department:", err);
+        } catch (err) {
             setError(
-                err.response?.data?.message ||
-                "Failed to delete department. It may have related majors or groups.",
+                getApiErrorMessage(
+                    err,
+                    "Failed to delete department. It may have related majors or groups.",
+                ),
             );
         }
     };
@@ -272,8 +270,13 @@ export default function DepartmentsPage() {
 
             setSelectedDepartments([]);
             await loadData();
-        } catch {
-            setError("Unexpected error while deleting departments");
+        } catch (err) {
+            setError(
+                getApiErrorMessage(
+                    err,
+                    "Unexpected error while deleting departments",
+                ),
+            );
         }
     };
 
@@ -315,7 +318,6 @@ export default function DepartmentsPage() {
             <PageHeader
                 eyebrow="Academic Structure"
                 title="Departments"
-                description="Manage departments and connect them with faculties."
                 actions={
                     <Button onClick={openCreateModal}>
                         <Plus className="h-4 w-4" />
@@ -330,54 +332,7 @@ export default function DepartmentsPage() {
                 </Card>
             )}
 
-            <section className="grid gap-4 md:grid-cols-3">
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Departments
-                        </CardTitle>
-                        <Building2 className="h-4 w-4 text-blue-700" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{departments.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Total departments
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Faculties
-                        </CardTitle>
-                        <Badge variant="info">Linked</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{faculties.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Available faculties
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Selected
-                        </CardTitle>
-                        <Badge variant="secondary">Bulk</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{selectedDepartments.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Selected rows
-                        </p>
-                    </CardContent>
-                </Card>
-            </section>
-
-            <Card className="glass-card mt-6">
+            <Card className="glass-card">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div className="relative w-full max-w-xl">
@@ -437,7 +392,9 @@ export default function DepartmentsPage() {
                                         {getSortLabel("faculty", "Faculty")}
                                     </th>
                                     <th className="py-3">ID</th>
-                                    <th className="py-3 text-right">Actions</th>
+                                    <th className="py-3 text-right">
+                                        Actions
+                                    </th>
                                 </tr>
                                 </thead>
 
@@ -450,14 +407,20 @@ export default function DepartmentsPage() {
                                         <td className="py-4">
                                             <input
                                                 type="checkbox"
-                                                checked={selectedDepartments.includes(department.id)}
-                                                onChange={() => handleSelectDepartment(department.id)}
+                                                checked={selectedDepartments.includes(
+                                                    department.id,
+                                                )}
+                                                onChange={() =>
+                                                    handleSelectDepartment(department.id)
+                                                }
                                                 className="h-4 w-4 rounded border-gray-300"
                                             />
                                         </td>
 
                                         <td className="py-4">
-                                            <div className="font-medium">{department.name}</div>
+                                            <div className="font-medium">
+                                                {department.name}
+                                            </div>
                                         </td>
 
                                         <td className="py-4">
@@ -467,7 +430,9 @@ export default function DepartmentsPage() {
                                         </td>
 
                                         <td className="py-4">
-                                            <Badge variant="outline">#{department.id}</Badge>
+                                            <Badge variant="outline">
+                                                #{department.id}
+                                            </Badge>
                                         </td>
 
                                         <td className="py-4">
@@ -475,7 +440,9 @@ export default function DepartmentsPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon-sm"
-                                                    onClick={() => handleEdit(department)}
+                                                    onClick={() =>
+                                                        handleEdit(department)
+                                                    }
                                                     aria-label="Edit department"
                                                 >
                                                     <Edit className="h-4 w-4" />
@@ -484,7 +451,9 @@ export default function DepartmentsPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon-sm"
-                                                    onClick={() => handleDelete(department)}
+                                                    onClick={() =>
+                                                        handleDelete(department)
+                                                    }
                                                     aria-label="Delete department"
                                                     className="text-red-600 hover:bg-red-50 hover:text-red-700"
                                                 >
@@ -503,12 +472,20 @@ export default function DepartmentsPage() {
 
             {(isCreateModalOpen || isEditModalOpen) && (
                 <DepartmentModal
-                    title={isCreateModalOpen ? "Create Department" : "Edit Department"}
+                    title={
+                        isCreateModalOpen
+                            ? "Create Department"
+                            : "Edit Department"
+                    }
                     formData={formData}
                     faculties={faculties}
                     onChange={handleInputChange}
                     onClose={isCreateModalOpen ? closeCreateModal : closeEditModal}
-                    onSubmit={isCreateModalOpen ? handleCreateSubmit : handleEditSubmit}
+                    onSubmit={
+                        isCreateModalOpen
+                            ? handleCreateSubmit
+                            : handleEditSubmit
+                    }
                 />
             )}
         </AppShell>
@@ -538,13 +515,10 @@ function DepartmentModal({
                 <div className="mb-6 flex items-start justify-between gap-4">
                     <div>
                         <h3 className="text-lg font-semibold">{title}</h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Fill in department information and select faculty.
-                        </p>
                     </div>
 
                     <Button type="button" variant="ghost" size="icon" onClick={onClose}>
-                        ✕
+                        X
                     </Button>
                 </div>
 

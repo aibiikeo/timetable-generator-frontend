@@ -3,12 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
     Edit,
-    GraduationCap,
     Layers3,
     Plus,
     Search,
     Trash2,
-    Users,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -19,17 +17,17 @@ import {
     Card,
     CardContent,
     CardHeader,
-    CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     DeleteMode,
-    MajorResponse,
-    StudyGroupResponse,
+    getApiErrorMessage,
     groupApi,
     majorApi,
+    MajorResponse,
+    StudyGroupResponse,
 } from "@/lib";
 
 type SortField = "name" | "major" | "course" | "studentCount";
@@ -79,7 +77,7 @@ export default function GroupsPage() {
         majors.forEach((major) => {
             map.set(
                 major.id,
-                major.shortName ? `${major.shortName} — ${major.name}` : major.name,
+                major.shortName ? `${major.shortName} - ${major.name}` : major.name,
             );
         });
 
@@ -141,8 +139,7 @@ export default function GroupsPage() {
             setGroups(groupsData);
             setMajors(majorsData);
         } catch (err) {
-            console.error("Error loading study groups:", err);
-            setError("Failed to load study groups");
+            setError(getApiErrorMessage(err, "Failed to load study groups"));
         } finally {
             if (initial) setLoading(false);
         }
@@ -173,7 +170,7 @@ export default function GroupsPage() {
                 {label}
                 {isActive && (
                     <span className="text-xs">
-                        {sortDirection === "asc" ? "↑" : "↓"}
+                        {sortDirection === "asc" ? "" : ""}
                     </span>
                 )}
             </button>
@@ -241,9 +238,8 @@ export default function GroupsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error creating study group:", err);
-            setError(err.response?.data?.message || "Failed to create study group");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to create study group"));
         }
     };
 
@@ -268,9 +264,8 @@ export default function GroupsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error updating study group:", err);
-            setError(err.response?.data?.message || "Failed to update study group");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to update study group"));
         }
     };
 
@@ -299,11 +294,12 @@ export default function GroupsPage() {
             await groupApi.deleteGroup(group.id, mode);
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error deleting study group:", err);
+        } catch (err) {
             setError(
-                err.response?.data?.message ||
-                "Failed to delete study group. It may have related assignments or lessons.",
+                getApiErrorMessage(
+                    err,
+                    "Failed to delete study group. It may have related assignments or lessons.",
+                ),
             );
         }
     };
@@ -331,8 +327,13 @@ export default function GroupsPage() {
             setSelectedGroups([]);
 
             await loadData();
-        } catch {
-            setError("Unexpected error while deleting study groups");
+        } catch (err) {
+            setError(
+                getApiErrorMessage(
+                    err,
+                    "Unexpected error while deleting study groups",
+                ),
+            );
         }
     };
 
@@ -374,7 +375,6 @@ export default function GroupsPage() {
             <PageHeader
                 eyebrow="Academic Structure"
                 title="Study Groups"
-                description="Manage student groups and link them to the correct major."
                 actions={
                     <Button onClick={openCreateModal}>
                         <Plus className="h-4 w-4" />
@@ -389,56 +389,7 @@ export default function GroupsPage() {
                 </Card>
             )}
 
-            <section className="grid gap-4 md:grid-cols-3">
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Study groups
-                        </CardTitle>
-                        <Users className="h-4 w-4 text-blue-700" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{groups.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Total groups
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Majors
-                        </CardTitle>
-                        <GraduationCap className="h-4 w-4 text-violet-700" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{majors.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Available majors
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Selected
-                        </CardTitle>
-                        <Badge variant="secondary">Bulk</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">
-                            {selectedGroups.length}
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Selected rows
-                        </p>
-                    </CardContent>
-                </Card>
-            </section>
-
-            <Card className="glass-card mt-6">
+            <Card className="glass-card">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div className="relative w-full max-w-xl">
@@ -501,12 +452,6 @@ export default function GroupsPage() {
                                     <th className="py-3 text-center">
                                         {getSortLabel("course", "Course")}
                                     </th>
-                                    <th className="py-3 text-center">
-                                        {getSortLabel(
-                                            "studentCount",
-                                            "Students",
-                                        )}
-                                    </th>
                                     <th className="py-3 text-right">
                                         Actions
                                     </th>
@@ -536,9 +481,6 @@ export default function GroupsPage() {
                                             <div className="font-medium">
                                                 {group.name}
                                             </div>
-                                            <div className="text-xs text-muted-foreground">
-                                                ID: {group.id}
-                                            </div>
                                         </td>
 
                                         <td className="py-4">
@@ -559,10 +501,6 @@ export default function GroupsPage() {
                                             <Badge variant="outline">
                                                 Course {group.course}
                                             </Badge>
-                                        </td>
-
-                                        <td className="py-4 text-center">
-                                            {group.studentCount}
                                         </td>
 
                                         <td className="py-4">
@@ -643,7 +581,7 @@ function GroupModal({
                     </div>
 
                     <Button type="button" variant="ghost" size="icon" onClick={onClose}>
-                        ✕
+                        X
                     </Button>
                 </div>
 
@@ -678,7 +616,7 @@ function GroupModal({
                             {majors.map((major) => (
                                 <option key={major.id} value={major.id}>
                                     {major.shortName
-                                        ? `${major.shortName} — ${major.name}`
+                                        ? `${major.shortName} - ${major.name}`
                                         : major.name}
                                 </option>
                             ))}

@@ -213,7 +213,7 @@ export default function LessonsPage() {
                 {label}
                 {isActive && (
                     <span className="text-xs">
-                        {sortDirection === "asc" ? "↑" : "↓"}
+                        {sortDirection === "asc" ? "" : ""}
                     </span>
                 )}
             </button>
@@ -419,7 +419,6 @@ export default function LessonsPage() {
                 <PageHeader
                     eyebrow="Scheduling"
                     title="Lessons"
-                    description="Published timetable lessons will appear here."
                 />
 
                 <Card className="glass-card">
@@ -441,11 +440,6 @@ export default function LessonsPage() {
             <PageHeader
                 eyebrow="Scheduling"
                 title="Lessons"
-                description={
-                    publishedTimetable
-                        ? `Showing lessons from published timetable: ${publishedTimetable.name}`
-                        : "Published timetable lessons will appear here."
-                }
                 actions={
                     publishedTimetable && (
                         <Button onClick={openCreateModal}>
@@ -487,11 +481,11 @@ export default function LessonsPage() {
                     </CardHeader>
                     <CardContent>
                         <div className="truncate text-xl font-bold">
-                            {publishedTimetable?.name || "—"}
+                            {publishedTimetable?.name || "-"}
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground">
                             {publishedTimetable
-                                ? `${publishedTimetable.academicYearStart}–${publishedTimetable.academicYearEnd} · ${publishedTimetable.semester}`
+                                ? `${publishedTimetable.academicYearStart}-${publishedTimetable.academicYearEnd} - ${publishedTimetable.semester}`
                                 : "No published timetable"}
                         </p>
                     </CardContent>
@@ -616,9 +610,6 @@ export default function LessonsPage() {
 
                                         <td className="py-4">
                                             <div className="font-medium">{lesson.subjectName}</div>
-                                            <div className="text-xs text-muted-foreground">
-                                                ID: {lesson.id}
-                                            </div>
                                         </td>
 
                                         <td className="py-4">{lesson.teacherName}</td>
@@ -633,7 +624,7 @@ export default function LessonsPage() {
                                             </div>
                                         </td>
 
-                                        <td className="py-4">{lesson.roomName || "—"}</td>
+                                        <td className="py-4">{lesson.roomName || "-"}</td>
 
                                         <td className="py-4 text-center">
                                             {lesson.durationHours}h
@@ -721,7 +712,7 @@ function LessonModal({
                     </div>
 
                     <Button type="button" variant="ghost" size="icon" onClick={onClose}>
-                        ✕
+                        X
                     </Button>
                 </div>
 
@@ -740,7 +731,7 @@ function LessonModal({
                             <option value={0}>Select assignment</option>
                             {assignments.map((assignment) => (
                                 <option key={assignment.id} value={assignment.id}>
-                                    {assignment.subjectName} — {assignment.teacherName}
+                                    {assignment.subjectName} - {assignment.teacherName}
                                 </option>
                             ))}
                         </select>
@@ -808,7 +799,7 @@ function LessonModal({
                                 <option value="">No room</option>
                                 {rooms.map((room) => (
                                     <option key={room.id} value={room.id}>
-                                        {room.name} — {room.type}, {room.capacity} seats
+                                        {room.name} - {room.type}, {room.capacity} seats
                                     </option>
                                 ))}
                             </select>

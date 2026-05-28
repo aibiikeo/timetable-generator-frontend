@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-    DoorOpen,
     Edit,
     Plus,
     Search,
@@ -17,12 +16,12 @@ import {
     Card,
     CardContent,
     CardHeader,
-    CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+    getApiErrorMessage,
     RoomResponse,
     RoomType,
     roomApi,
@@ -93,10 +92,6 @@ export default function RoomsPage() {
         });
     }, [filteredRooms, sortField, sortDirection]);
 
-    const totalCapacity = useMemo(() => {
-        return rooms.reduce((sum, room) => sum + room.capacity, 0);
-    }, [rooms]);
-
     const loadData = async (initial = false) => {
         try {
             if (initial) setLoading(true);
@@ -106,8 +101,7 @@ export default function RoomsPage() {
             const data = await roomApi.getRooms();
             setRooms(data);
         } catch (err) {
-            console.error("Error loading rooms:", err);
-            setError("Failed to load rooms");
+            setError(getApiErrorMessage(err, "Failed to load rooms"));
         } finally {
             if (initial) setLoading(false);
         }
@@ -138,7 +132,7 @@ export default function RoomsPage() {
                 {label}
                 {isActive && (
                     <span className="text-xs">
-                        {sortDirection === "asc" ? "↑" : "↓"}
+                        {sortDirection === "asc" ? "" : ""}
                     </span>
                 )}
             </button>
@@ -198,9 +192,8 @@ export default function RoomsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error creating room:", err);
-            setError(err.response?.data?.message || "Failed to create room");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to create room"));
         }
     };
 
@@ -224,9 +217,8 @@ export default function RoomsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error updating room:", err);
-            setError(err.response?.data?.message || "Failed to update room");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to update room"));
         }
     };
 
@@ -250,11 +242,12 @@ export default function RoomsPage() {
 
             await roomApi.deleteRoom(room.id);
             await loadData();
-        } catch (err: any) {
-            console.error("Error deleting room:", err);
+        } catch (err) {
             setError(
-                err.response?.data?.message ||
-                "Failed to delete room. It may be used in lessons.",
+                getApiErrorMessage(
+                    err,
+                    "Failed to delete room. It may be used in lessons.",
+                ),
             );
         }
     };
@@ -279,8 +272,13 @@ export default function RoomsPage() {
 
             setSelectedRooms([]);
             await loadData();
-        } catch {
-            setError("Unexpected error while deleting rooms");
+        } catch (err) {
+            setError(
+                getApiErrorMessage(
+                    err,
+                    "Unexpected error while deleting rooms",
+                ),
+            );
         }
     };
 
@@ -322,7 +320,6 @@ export default function RoomsPage() {
             <PageHeader
                 eyebrow="Resources"
                 title="Rooms"
-                description="Manage classrooms, computer labs and room capacity."
                 actions={
                     <Button onClick={openCreateModal}>
                         <Plus className="h-4 w-4" />
@@ -337,54 +334,7 @@ export default function RoomsPage() {
                 </Card>
             )}
 
-            <section className="grid gap-4 md:grid-cols-3">
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Rooms
-                        </CardTitle>
-                        <DoorOpen className="h-4 w-4 text-blue-700" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{rooms.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Total rooms
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Capacity
-                        </CardTitle>
-                        <Badge variant="info">Seats</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{totalCapacity}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Total available seats
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Selected
-                        </CardTitle>
-                        <Badge variant="secondary">Bulk</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{selectedRooms.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Selected rows
-                        </p>
-                    </CardContent>
-                </Card>
-            </section>
-
-            <Card className="glass-card mt-6">
+            <Card className="glass-card">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div className="relative w-full max-w-xl">
@@ -429,20 +379,32 @@ export default function RoomsPage() {
                                         <input
                                             type="checkbox"
                                             checked={
-                                                selectedRooms.length === sortedRooms.length &&
+                                                selectedRooms.length ===
+                                                sortedRooms.length &&
                                                 sortedRooms.length > 0
                                             }
                                             onChange={handleSelectAll}
                                             className="h-4 w-4 rounded border-gray-300"
                                         />
                                     </th>
-                                    <th className="py-3">{getSortLabel("name", "Room")}</th>
+
+                                    <th className="py-3">
+                                        {getSortLabel("name", "Room")}
+                                    </th>
+
                                     <th className="py-3 text-center">
                                         {getSortLabel("capacity", "Capacity")}
                                     </th>
-                                    <th className="py-3">{getSortLabel("type", "Type")}</th>
+
+                                    <th className="py-3">
+                                        {getSortLabel("type", "Type")}
+                                    </th>
+
                                     <th className="py-3">ID</th>
-                                    <th className="py-3 text-right">Actions</th>
+
+                                    <th className="py-3 text-right">
+                                        Actions
+                                    </th>
                                 </tr>
                                 </thead>
 
@@ -462,7 +424,9 @@ export default function RoomsPage() {
                                         </td>
 
                                         <td className="py-4">
-                                            <div className="font-medium">{room.name}</div>
+                                            <div className="font-medium">
+                                                {room.name}
+                                            </div>
                                         </td>
 
                                         <td className="py-4 text-center">
@@ -470,11 +434,15 @@ export default function RoomsPage() {
                                         </td>
 
                                         <td className="py-4">
-                                            <Badge variant="secondary">{room.type}</Badge>
+                                            <Badge variant="secondary">
+                                                {room.type}
+                                            </Badge>
                                         </td>
 
                                         <td className="py-4">
-                                            <Badge variant="outline">#{room.id}</Badge>
+                                            <Badge variant="outline">
+                                                #{room.id}
+                                            </Badge>
                                         </td>
 
                                         <td className="py-4">
@@ -542,13 +510,10 @@ function RoomModal({
                 <div className="mb-6 flex items-start justify-between gap-4">
                     <div>
                         <h3 className="text-lg font-semibold">{title}</h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Fill in room information.
-                        </p>
                     </div>
 
                     <Button type="button" variant="ghost" size="icon" onClick={onClose}>
-                        ✕
+                        X
                     </Button>
                 </div>
 
@@ -604,6 +569,7 @@ function RoomModal({
                         <Button type="button" variant="outline" onClick={onClose}>
                             Cancel
                         </Button>
+
                         <Button type="submit">Save</Button>
                     </div>
                 </form>

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, Loader2, Lock, Mail } from "lucide-react";
@@ -162,6 +163,10 @@ export default function LoginPage() {
                         <Button type="submit" className="h-11 w-full" disabled={loading}>
                             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                             Sign in
+                        </Button>
+
+                        <Button variant="outline" className="h-11 w-full" asChild>
+                            <Link href="/aiu-timetable">Open public timetable</Link>
                         </Button>
 
                         <div className="rounded-2xl border border-border bg-card/80 p-4 text-center text-xs text-muted-foreground">

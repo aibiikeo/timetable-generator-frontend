@@ -71,7 +71,6 @@ export default function ConstraintsPage() {
             <PageHeader
                 eyebrow="Scheduling"
                 title="Constraints"
-                description="Rules used to check and generate class schedules."
             />
 
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

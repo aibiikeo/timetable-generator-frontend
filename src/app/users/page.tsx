@@ -7,9 +7,7 @@ import {
     Loader2,
     Plus,
     Search,
-    ShieldCheck,
     Trash2,
-    Users,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -20,7 +18,6 @@ import {
     Card,
     CardContent,
     CardHeader,
-    CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -187,10 +184,6 @@ export default function UsersPage() {
         });
     }, [filteredUsers, sortField, sortDirection]);
 
-    const superAdminCount = useMemo(() => {
-        return users.filter((user) => user.role === "SUPER_ADMIN").length;
-    }, [users]);
-
     const loadData = async (initial = false) => {
         try {
             if (initial) setLoading(true);
@@ -268,7 +261,7 @@ export default function UsersPage() {
                 {label}
                 {isActive && (
                     <span className="text-xs">
-                        {sortDirection === "asc" ? "↑" : "↓"}
+                        {sortDirection === "asc" ? "" : ""}
                     </span>
                 )}
             </button>
@@ -475,7 +468,6 @@ export default function UsersPage() {
                     <PageHeader
                         eyebrow="Administration"
                         title="Users"
-                        description="Manage administrator accounts and system access roles."
                         actions={
                             <Button onClick={openCreateModal}>
                                 <Plus className="h-4 w-4" />
@@ -492,60 +484,7 @@ export default function UsersPage() {
                         </Card>
                     )}
 
-                    <section className="grid gap-4 md:grid-cols-3">
-                        <Card className="glass-card">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                                <CardTitle className="text-sm font-medium text-muted-foreground">
-                                    Users
-                                </CardTitle>
-                                <Users className="h-4 w-4 text-blue-700" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-3xl font-bold">
-                                    {users.length}
-                                </div>
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                    Total accounts
-                                </p>
-                            </CardContent>
-                        </Card>
-
-                        <Card className="glass-card">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                                <CardTitle className="text-sm font-medium text-muted-foreground">
-                                    Super admins
-                                </CardTitle>
-                                <ShieldCheck className="h-4 w-4 text-violet-700" />
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-3xl font-bold">
-                                    {superAdminCount}
-                                </div>
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                    Full access accounts
-                                </p>
-                            </CardContent>
-                        </Card>
-
-                        <Card className="glass-card">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                                <CardTitle className="text-sm font-medium text-muted-foreground">
-                                    Selected
-                                </CardTitle>
-                                <Badge variant="secondary">Bulk</Badge>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="text-3xl font-bold">
-                                    {selectedUsers.length}
-                                </div>
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                    Selected rows
-                                </p>
-                            </CardContent>
-                        </Card>
-                    </section>
-
-                    <Card className="glass-card mt-6">
+                    <Card className="glass-card">
                         <CardHeader>
                             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                                 <div className="relative w-full max-w-xl">
@@ -769,7 +708,7 @@ function UserModal({
                         size="icon"
                         onClick={onClose}
                     >
-                        ✕
+                        X
                     </Button>
                 </div>
 

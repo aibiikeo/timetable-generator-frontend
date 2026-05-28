@@ -2,10 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import {
-    AlertTriangle,
     ArrowRight,
     CalendarDays,
-    CheckCircle2,
     ClipboardList,
     Download,
     FileSpreadsheet,
@@ -15,7 +13,6 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
     Card,
@@ -52,30 +49,27 @@ const quickActions = [
     },
 ];
 
-const reviewItems = [
+const workflowSteps = [
     {
-        title: "Unplaced lessons",
-        value: "—",
-        description: "Lessons that were not placed after generation",
-        icon: AlertTriangle,
-        badge: "Check",
-        color: "border-amber-200 bg-amber-50/80 text-amber-800",
-    },
-    {
-        title: "Conflicts",
-        value: "—",
-        description: "Teacher, group, room or time conflicts",
-        icon: AlertTriangle,
-        badge: "Review",
-        color: "border-red-200 bg-red-50/80 text-red-800",
-    },
-    {
-        title: "Missing data",
-        value: "—",
-        description: "Assignments, rooms or time slots that need completion",
+        title: "Assignments",
+        description: "Check teaching load before generation",
+        href: "/timetables",
         icon: ClipboardList,
-        badge: "Data",
-        color: "border-blue-200 bg-blue-50/80 text-blue-800",
+        color: "border-blue-100 bg-blue-50 text-blue-700",
+    },
+    {
+        title: "Generate",
+        description: "Build a timetable from current data",
+        href: "/timetables",
+        icon: Play,
+        color: "border-emerald-100 bg-emerald-50 text-emerald-700",
+    },
+    {
+        title: "Review grid",
+        description: "Open the generated timetable view",
+        href: "/timetables",
+        icon: FileSpreadsheet,
+        color: "border-violet-100 bg-violet-50 text-violet-700",
     },
 ];
 
@@ -89,46 +83,52 @@ export default function HomePage() {
             <section className="mt-6 grid items-start gap-6 xl:grid-cols-[1.4fr_0.9fr]">
                 <Card className="glass-card h-fit overflow-hidden">
                     <CardHeader className="pb-4">
-                        <CardTitle>Current timetable</CardTitle>
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <CardTitle>Schedule workspace</CardTitle>
+                                <CardDescription>
+                                    Start with assignments, generate the timetable, then review
+                                    the grid before export.
+                                </CardDescription>
+                            </div>
+
+                            <Button onClick={() => router.push("/timetables")}>
+                                Open timetables
+                                <ArrowRight className="h-4 w-4" />
+                            </Button>
+                        </div>
                     </CardHeader>
 
                     <CardContent>
                         <div className="grid gap-4 md:grid-cols-3">
-                            <div className="rounded-2xl border border-border bg-card p-5">
-                                <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-100 bg-blue-50 text-blue-700">
-                                    <ClipboardList className="h-5 w-5" />
-                                </div>
+                            {workflowSteps.map((step) => {
+                                const Icon = step.icon;
 
-                                <div className="text-2xl font-bold">—</div>
+                                return (
+                                    <button
+                                        key={step.title}
+                                        onClick={() => router.push(step.href)}
+                                        className="group rounded-2xl border border-border bg-card p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
+                                    >
+                                        <div
+                                            className={`mb-4 flex h-11 w-11 items-center justify-center rounded-2xl border ${step.color}`}
+                                        >
+                                            <Icon className="h-5 w-5" />
+                                        </div>
 
-                                <div className="mt-1 text-sm text-muted-foreground">
-                                    Assignments
-                                </div>
-                            </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="font-medium text-foreground">
+                                                {step.title}
+                                            </div>
+                                            <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+                                        </div>
 
-                            <div className="rounded-2xl border border-border bg-card p-5">
-                                <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-100 bg-emerald-50 text-emerald-700">
-                                    <CheckCircle2 className="h-5 w-5" />
-                                </div>
-
-                                <div className="text-2xl font-bold">—</div>
-
-                                <div className="mt-1 text-sm text-muted-foreground">
-                                    Placed lessons
-                                </div>
-                            </div>
-
-                            <div className="rounded-2xl border border-border bg-card p-5">
-                                <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl border border-amber-100 bg-amber-50 text-amber-700">
-                                    <AlertTriangle className="h-5 w-5" />
-                                </div>
-
-                                <div className="text-2xl font-bold">—</div>
-
-                                <div className="mt-1 text-sm text-muted-foreground">
-                                    Needs review
-                                </div>
-                            </div>
+                                        <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                                            {step.description}
+                                        </div>
+                                    </button>
+                                );
+                            })}
                         </div>
 
                         <div className="mt-6 flex flex-wrap gap-2">
@@ -198,67 +198,6 @@ export default function HomePage() {
 
                                         <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
                                     </button>
-                                );
-                            })}
-                        </div>
-                    </CardContent>
-                </Card>
-            </section>
-
-            <section className="mt-6">
-                <Card className="glass-card">
-                    <CardHeader>
-                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                            <div>
-                                <CardTitle>Needs review</CardTitle>
-                                <CardDescription>
-                                    Items that may require attention after generation.
-                                </CardDescription>
-                            </div>
-
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => router.push("/timetables")}
-                            >
-                                Open review
-                                <ArrowRight className="h-4 w-4" />
-                            </Button>
-                        </div>
-                    </CardHeader>
-
-                    <CardContent>
-                        <div className="grid gap-4 md:grid-cols-3">
-                            {reviewItems.map((item) => {
-                                const Icon = item.icon;
-
-                                return (
-                                    <div
-                                        key={item.title}
-                                        className="rounded-2xl border border-border bg-card p-5"
-                                    >
-                                        <div className="mb-4 flex items-start justify-between gap-3">
-                                            <div
-                                                className={`flex h-11 w-11 items-center justify-center rounded-2xl border ${item.color}`}
-                                            >
-                                                <Icon className="h-5 w-5" />
-                                            </div>
-
-                                            <Badge variant="secondary">{item.badge}</Badge>
-                                        </div>
-
-                                        <div className="text-2xl font-bold">
-                                            {item.value}
-                                        </div>
-
-                                        <div className="mt-1 font-medium text-foreground">
-                                            {item.title}
-                                        </div>
-
-                                        <div className="mt-2 text-sm leading-6 text-muted-foreground">
-                                            {item.description}
-                                        </div>
-                                    </div>
                                 );
                             })}
                         </div>

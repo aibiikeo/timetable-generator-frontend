@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Edit, GraduationCap, Plus, Search, Trash2 } from "lucide-react";
+import { Edit, Plus, Search, Trash2 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -11,7 +11,6 @@ import {
     Card,
     CardContent,
     CardHeader,
-    CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -21,6 +20,7 @@ import {
     DepartmentResponse,
     MajorResponse,
     departmentApi,
+    getApiErrorMessage,
     majorApi,
 } from "@/lib";
 
@@ -41,7 +41,7 @@ const EMPTY_FORM: FormDataState = {
     departmentId: 0,
 };
 
-const degrees: Degree[] = ["BACHELOR", "MASTER", "SPECIALIST"];
+const DEGREES: Degree[] = ["BACHELOR", "MASTER", "SPECIALIST"];
 
 export default function MajorsPage() {
     const [majors, setMajors] = useState<MajorResponse[]>([]);
@@ -67,7 +67,9 @@ export default function MajorsPage() {
     }, []);
 
     const departmentMap = useMemo(() => {
-        return new Map(departments.map((department) => [department.id, department.name]));
+        return new Map(
+            departments.map((department) => [department.id, department.name]),
+        );
     }, [departments]);
 
     const filteredMajors = useMemo(() => {
@@ -92,13 +94,19 @@ export default function MajorsPage() {
             const direction = sortDirection === "asc" ? 1 : -1;
 
             if (sortField === "department") {
-                const departmentA = a.departmentName || departmentMap.get(a.departmentId) || "";
-                const departmentB = b.departmentName || departmentMap.get(b.departmentId) || "";
+                const departmentA =
+                    a.departmentName || departmentMap.get(a.departmentId) || "";
+                const departmentB =
+                    b.departmentName || departmentMap.get(b.departmentId) || "";
 
                 return departmentA.localeCompare(departmentB) * direction;
             }
 
-            return String(a[sortField] || "").localeCompare(String(b[sortField] || "")) * direction;
+            return (
+                String(a[sortField] || "").localeCompare(
+                    String(b[sortField] || ""),
+                ) * direction
+            );
         });
     }, [departmentMap, filteredMajors, sortDirection, sortField]);
 
@@ -116,8 +124,7 @@ export default function MajorsPage() {
             setMajors(majorsData);
             setDepartments(departmentsData);
         } catch (err) {
-            console.error("Error loading majors:", err);
-            setError("Failed to load majors");
+            setError(getApiErrorMessage(err, "Failed to load majors"));
         } finally {
             if (initial) setLoading(false);
         }
@@ -148,7 +155,7 @@ export default function MajorsPage() {
                 {label}
                 {isActive && (
                     <span className="text-xs">
-                        {sortDirection === "asc" ? "↑" : "↓"}
+                        {sortDirection === "asc" ? "" : ""}
                     </span>
                 )}
             </button>
@@ -204,9 +211,8 @@ export default function MajorsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error creating major:", err);
-            setError(err.response?.data?.message || "Failed to create major");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to create major"));
         }
     };
 
@@ -231,9 +237,8 @@ export default function MajorsPage() {
             resetForm();
 
             await loadData();
-        } catch (err: any) {
-            console.error("Error updating major:", err);
-            setError(err.response?.data?.message || "Failed to update major");
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to update major"));
         }
     };
 
@@ -258,11 +263,12 @@ export default function MajorsPage() {
 
             await majorApi.deleteMajor(major.id);
             await loadData();
-        } catch (err: any) {
-            console.error("Error deleting major:", err);
+        } catch (err) {
             setError(
-                err.response?.data?.message ||
-                "Failed to delete major. It may have related groups or subjects.",
+                getApiErrorMessage(
+                    err,
+                    "Failed to delete major. It may have related groups or subjects.",
+                ),
             );
         }
     };
@@ -287,8 +293,13 @@ export default function MajorsPage() {
 
             setSelectedMajors([]);
             await loadData();
-        } catch {
-            setError("Unexpected error while deleting majors");
+        } catch (err) {
+            setError(
+                getApiErrorMessage(
+                    err,
+                    "Unexpected error while deleting majors",
+                ),
+            );
         }
     };
 
@@ -330,7 +341,6 @@ export default function MajorsPage() {
             <PageHeader
                 eyebrow="Academic Structure"
                 title="Majors"
-                description="Manage academic programs and connect them with departments."
                 actions={
                     <Button onClick={openCreateModal}>
                         <Plus className="h-4 w-4" />
@@ -345,54 +355,7 @@ export default function MajorsPage() {
                 </Card>
             )}
 
-            <section className="grid gap-4 md:grid-cols-3">
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Majors
-                        </CardTitle>
-                        <GraduationCap className="h-4 w-4 text-blue-700" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{majors.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Total majors
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Departments
-                        </CardTitle>
-                        <Badge variant="info">Linked</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{departments.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Available departments
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Selected
-                        </CardTitle>
-                        <Badge variant="secondary">Bulk</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{selectedMajors.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Selected rows
-                        </p>
-                    </CardContent>
-                </Card>
-            </section>
-
-            <Card className="glass-card mt-6">
+            <Card className="glass-card">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div className="relative w-full max-w-xl">
@@ -437,21 +400,36 @@ export default function MajorsPage() {
                                         <input
                                             type="checkbox"
                                             checked={
-                                                selectedMajors.length === sortedMajors.length &&
+                                                selectedMajors.length ===
+                                                sortedMajors.length &&
                                                 sortedMajors.length > 0
                                             }
                                             onChange={handleSelectAll}
                                             className="h-4 w-4 rounded border-gray-300"
                                         />
                                     </th>
-                                    <th className="py-3">{getSortLabel("name", "Major")}</th>
-                                    <th className="py-3">{getSortLabel("shortName", "Short")}</th>
-                                    <th className="py-3">{getSortLabel("degree", "Degree")}</th>
+
+                                    <th className="py-3">
+                                        {getSortLabel("name", "Major")}
+                                    </th>
+
+                                    <th className="py-3">
+                                        {getSortLabel("shortName", "Short")}
+                                    </th>
+
+                                    <th className="py-3">
+                                        {getSortLabel("degree", "Degree")}
+                                    </th>
+
                                     <th className="py-3">
                                         {getSortLabel("department", "Department")}
                                     </th>
+
                                     <th className="py-3">Faculty</th>
-                                    <th className="py-3 text-right">Actions</th>
+
+                                    <th className="py-3 text-right">
+                                        Actions
+                                    </th>
                                 </tr>
                                 </thead>
 
@@ -464,41 +442,54 @@ export default function MajorsPage() {
                                         <td className="py-4">
                                             <input
                                                 type="checkbox"
-                                                checked={selectedMajors.includes(major.id)}
-                                                onChange={() => handleSelectMajor(major.id)}
+                                                checked={selectedMajors.includes(
+                                                    major.id,
+                                                )}
+                                                onChange={() =>
+                                                    handleSelectMajor(major.id)
+                                                }
                                                 className="h-4 w-4 rounded border-gray-300"
                                             />
                                         </td>
 
                                         <td className="py-4">
-                                            <div className="font-medium">{major.name}</div>
-                                            <div className="text-xs text-muted-foreground">
-                                                ID: {major.id}
+                                            <div className="font-medium">
+                                                {major.name}
                                             </div>
                                         </td>
 
                                         <td className="py-4">
-                                            <Badge variant="secondary">{major.shortName}</Badge>
+                                            <Badge variant="secondary">
+                                                {major.shortName}
+                                            </Badge>
                                         </td>
 
                                         <td className="py-4">
-                                            <Badge variant="info">{major.degree}</Badge>
+                                            <Badge variant="info">
+                                                {major.degree}
+                                            </Badge>
                                         </td>
 
                                         <td className="py-4">
                                             {major.departmentName ||
-                                                departmentMap.get(major.departmentId) ||
+                                                departmentMap.get(
+                                                    major.departmentId,
+                                                ) ||
                                                 "Unknown"}
                                         </td>
 
-                                        <td className="py-4">{major.facultyName || "—"}</td>
+                                        <td className="py-4">
+                                            {major.facultyName || "-"}
+                                        </td>
 
                                         <td className="py-4">
                                             <div className="flex justify-end gap-2">
                                                 <Button
                                                     variant="ghost"
                                                     size="icon-sm"
-                                                    onClick={() => handleEdit(major)}
+                                                    onClick={() =>
+                                                        handleEdit(major)
+                                                    }
                                                     aria-label="Edit major"
                                                 >
                                                     <Edit className="h-4 w-4" />
@@ -507,7 +498,9 @@ export default function MajorsPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon-sm"
-                                                    onClick={() => handleDelete(major)}
+                                                    onClick={() =>
+                                                        handleDelete(major)
+                                                    }
                                                     aria-label="Delete major"
                                                     className="text-red-600 hover:bg-red-50 hover:text-red-700"
                                                 >
@@ -561,13 +554,10 @@ function MajorModal({
                 <div className="mb-6 flex items-start justify-between gap-4">
                     <div>
                         <h3 className="text-lg font-semibold">{title}</h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Fill in major information and select department.
-                        </p>
                     </div>
 
                     <Button type="button" variant="ghost" size="icon" onClick={onClose}>
-                        ✕
+                        X
                     </Button>
                 </div>
 
@@ -611,7 +601,7 @@ function MajorModal({
                             required
                             className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
-                            {degrees.map((degree) => (
+                            {DEGREES.map((degree) => (
                                 <option key={degree} value={degree}>
                                     {degree}
                                 </option>
@@ -634,7 +624,7 @@ function MajorModal({
                             {departments.map((department) => (
                                 <option key={department.id} value={department.id}>
                                     {department.facultyName
-                                        ? `${department.name} — ${department.facultyName}`
+                                        ? `${department.name} - ${department.facultyName}`
                                         : department.name}
                                 </option>
                             ))}

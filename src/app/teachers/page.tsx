@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
     Edit,
     Plus,
-    Presentation,
     Search,
     Trash2,
 } from "lucide-react";
@@ -17,7 +16,6 @@ import {
     Card,
     CardContent,
     CardHeader,
-    CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -121,7 +119,7 @@ export default function TeachersPage() {
                 {label}
                 {isActive && (
                     <span className="text-xs">
-                        {sortDirection === "asc" ? "↑" : "↓"}
+                        {sortDirection === "asc" ? "" : ""}
                     </span>
                 )}
             </button>
@@ -284,7 +282,6 @@ export default function TeachersPage() {
             <PageHeader
                 eyebrow="Resources"
                 title="Teachers"
-                description="Manage teachers used in subject assignments and timetable generation."
                 actions={
                     <Button onClick={openCreateModal}>
                         <Plus className="h-4 w-4" />
@@ -299,54 +296,7 @@ export default function TeachersPage() {
                 </Card>
             )}
 
-            <section className="grid gap-4 md:grid-cols-3">
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Teachers
-                        </CardTitle>
-                        <Presentation className="h-4 w-4 text-blue-700" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{teachers.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Total teachers
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Visible
-                        </CardTitle>
-                        <Badge variant="info">Search</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{sortedTeachers.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            After filtering
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Selected
-                        </CardTitle>
-                        <Badge variant="secondary">Bulk</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{selectedTeachers.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Selected rows
-                        </p>
-                    </CardContent>
-                </Card>
-            </section>
-
-            <Card className="glass-card mt-6">
+            <Card className="glass-card">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div className="relative w-full max-w-xl">
@@ -492,13 +442,10 @@ function TeacherModal({
                 <div className="mb-6 flex items-start justify-between gap-4">
                     <div>
                         <h3 className="text-lg font-semibold">{title}</h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Fill in teacher information.
-                        </p>
                     </div>
 
                     <Button type="button" variant="ghost" size="icon" onClick={onClose}>
-                        ✕
+                        X
                     </Button>
                 </div>
 

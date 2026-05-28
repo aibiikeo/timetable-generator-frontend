@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-    BookOpen,
     Edit,
     Plus,
     Search,
@@ -17,7 +16,6 @@ import {
     Card,
     CardContent,
     CardHeader,
-    CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -79,7 +77,7 @@ export default function SubjectsPage() {
             map.set(
                 major.id,
                 major.shortName
-                    ? `${major.shortName} — ${major.name}`
+                    ? `${major.shortName} - ${major.name}`
                     : major.name,
             );
         });
@@ -173,7 +171,7 @@ export default function SubjectsPage() {
                 {label}
                 {isActive && (
                     <span className="text-xs">
-                        {sortDirection === "asc" ? "↑" : "↓"}
+                        {sortDirection === "asc" ? "" : ""}
                     </span>
                 )}
             </button>
@@ -381,7 +379,6 @@ export default function SubjectsPage() {
             <PageHeader
                 eyebrow="Resources"
                 title="Subjects"
-                description="Manage subjects and link them to the correct major."
                 actions={
                     <Button onClick={openCreateModal}>
                         <Plus className="h-4 w-4" />
@@ -398,60 +395,7 @@ export default function SubjectsPage() {
                 </Card>
             )}
 
-            <section className="grid gap-4 md:grid-cols-3">
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Subjects
-                        </CardTitle>
-                        <BookOpen className="h-4 w-4 text-blue-700" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">
-                            {subjects.length}
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Total subjects
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Majors
-                        </CardTitle>
-                        <Badge variant="info">Linked</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">
-                            {majors.length}
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Available majors
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Selected
-                        </CardTitle>
-                        <Badge variant="secondary">Bulk</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">
-                            {selectedSubjects.length}
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Selected rows
-                        </p>
-                    </CardContent>
-                </Card>
-            </section>
-
-            <Card className="glass-card mt-6">
+            <Card className="glass-card">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div className="relative w-full max-w-xl">
@@ -560,9 +504,6 @@ export default function SubjectsPage() {
                                         <td className="py-4">
                                             <div className="font-medium">
                                                 {subject.name}
-                                            </div>
-                                            <div className="text-xs text-muted-foreground">
-                                                ID: {subject.id}
                                             </div>
                                         </td>
 
@@ -680,9 +621,6 @@ function SubjectModal({
                         <h3 className="text-lg font-semibold">
                             {title}
                         </h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Fill in subject information and link it to the correct major.
-                        </p>
                     </div>
 
                     <Button
@@ -692,7 +630,7 @@ function SubjectModal({
                         onClick={onClose}
                         aria-label="Close modal"
                     >
-                        ✕
+                        X
                     </Button>
                 </div>
 
@@ -741,7 +679,7 @@ function SubjectModal({
                             {majors.map((major) => (
                                 <option key={major.id} value={major.id}>
                                     {major.shortName
-                                        ? `${major.shortName} — ${major.name}`
+                                        ? `${major.shortName} - ${major.name}`
                                         : major.name}
                                 </option>
                             ))}
