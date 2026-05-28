@@ -1,8 +1,15 @@
 "use client";
 
-import { FileSpreadsheet, FileText, X } from "lucide-react";
+import { FileSpreadsheet, FileText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 
 interface ExportModalProps {
     isOpen: boolean;
@@ -13,35 +20,15 @@ interface ExportModalProps {
 
 export default function ExportModal({
                                         isOpen,
-                                        timetableName,
                                         onClose,
                                         onExport,
                                     }: ExportModalProps) {
-    if (!isOpen) return null;
-
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-            <div className="glass-card w-full max-w-lg rounded-2xl bg-card p-6 shadow-2xl">
-                <div className="mb-6 flex items-start justify-between gap-4">
-                    <div>
-                        <h3 className="text-lg font-semibold">
-                            Export Timetable
-                        </h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Choose export format for “{timetableName}”.
-                        </p>
-                    </div>
-
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={onClose}
-                        aria-label="Close modal"
-                    >
-                        <X className="h-4 w-4" />
-                    </Button>
-                </div>
+        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Export Timetable</DialogTitle>
+                </DialogHeader>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                     <button
@@ -54,9 +41,6 @@ export default function ExportModal({
                         </div>
 
                         <div className="font-medium">PDF</div>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Export as printable timetable document.
-                        </p>
                     </button>
 
                     <button
@@ -69,18 +53,15 @@ export default function ExportModal({
                         </div>
 
                         <div className="font-medium">Excel</div>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Export as spreadsheet for editing and sharing.
-                        </p>
                     </button>
                 </div>
 
-                <div className="mt-6 flex justify-end">
+                <DialogFooter>
                     <Button type="button" variant="outline" onClick={onClose}>
                         Cancel
                     </Button>
-                </div>
-            </div>
-        </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }

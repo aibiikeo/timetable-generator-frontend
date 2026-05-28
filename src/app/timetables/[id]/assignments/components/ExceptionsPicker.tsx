@@ -148,7 +148,7 @@ export default function ExceptionsPicker({
                             >
                                 {sortedSlots.map((slot) => (
                                     <option key={slot.id} value={slot.id}>
-                                        {formatTime(slot.startTime)}–
+                                        {formatTime(slot.startTime)}-
                                         {formatTime(slot.endTime)}
                                     </option>
                                 ))}

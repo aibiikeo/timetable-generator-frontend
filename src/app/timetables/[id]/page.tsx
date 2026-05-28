@@ -5,16 +5,17 @@ import Link from "next/link";
 import * as XLSX from "xlsx-js-style";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { toast } from "sonner";
 import {
     ArrowLeft,
-    CalendarDays,
     ClipboardList,
     FileDown,
     Loader2,
+    Minus,
     Play,
     Plus,
-    RefreshCcw,
     Send,
+    Settings2,
     Trash2,
 } from "lucide-react";
 
@@ -22,48 +23,63 @@ import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { DeleteModeDialog } from "@/components/ui/delete-mode-dialog";
 import {
-    Card,
-    CardContent,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     assignmentApi,
     departmentApi,
     facultyApi,
+    getApiErrorMessage,
     groupApi,
     lessonApi,
+    lunchApi,
     roomApi,
     subjectApi,
     teacherApi,
-    timetableApi,
     timeSlotApi,
+    timetableApi,
 } from "@/lib";
+import { DAYS_OF_WEEK } from "@/lib/constants";
 import type {
+    AssignmentRequest,
     AssignmentResponse,
     DayOfWeek,
+    DeleteMode,
     FacultyResponse,
     GenerationMode,
     GenerationResponse,
+    LessonRequest,
     LessonResponse,
+    LunchRequest,
+    LunchResponse,
     RoomResponse,
     StudyGroupResponse,
     SubjectResponse,
     TeacherResponse,
     TimeSlot,
+    TimeSlotRequest,
     TimetableResponse,
-    TimetableStatus,
 } from "@/lib/types";
-import { DAYS_OF_WEEK, DAYS_SHORT } from "@/lib/constants";
 
 import AssignmentForm from "./assignments/components/AssignmentForm";
+import AssignmentsDrawer from "./components/AssignmentsDrawer";
+import DiagnosticsPanel from "./components/DiagnosticsPanel";
 import ExportModal from "./components/ExportModal";
 import GenerateOptionsModal from "./components/GenerateOptionsModal";
 import GenerationResultModal from "./components/GenerationResultModal";
+import LessonDetailsModal from "./components/LessonDetailsModal";
+import LessonFormModal from "./components/LessonFormModal";
+import LunchSettingsPanel from "./components/LunchSettingsPanel";
 import ManualPlacementModal from "./components/ManualPlacementModal";
+import TimeSlotFormModal from "./components/TimeSlotFormModal";
 import TimetableGrid from "./components/TimetableGrid";
 
 type DepartmentOption = {
@@ -74,8 +90,19 @@ type DepartmentOption = {
 };
 
 type FilterValue = number | "ALL";
+type GridDensity = "compact" | "medium" | "large";
+type MainTab = "schedule" | "diagnostics" | "settings";
+
+type DeleteTarget =
+    | { type: "timetable"; entityName: string }
+    | { type: "lesson"; entityName: string; lesson: LessonResponse }
+    | { type: "assignment"; entityName: string; assignment: AssignmentResponse }
+    | { type: "lunch"; entityName: string; lunch: LunchResponse };
 
 const VISIBLE_DAYS = DAYS_OF_WEEK.filter((day) => day !== "SUNDAY");
+const MIN_GRID_ZOOM = 60;
+const MAX_GRID_ZOOM = 150;
+const GRID_ZOOM_STEP = 10;
 
 function formatTime(time: string) {
     return time.substring(0, 5);
@@ -96,7 +123,6 @@ const EXPORT_COLORS = [
 
 function hexToRgb(hex: string): [number, number, number] {
     const clean = hex.replace("#", "");
-
     const parts = clean.match(/.{1,2}/g);
 
     if (!parts || parts.length < 3) {
@@ -128,11 +154,7 @@ function getExportColorByLesson(lesson: LessonResponse) {
     return getExportColorByText(`${lesson.subjectName}-${lesson.teacherName}`);
 }
 
-function getLessonDurationSpan(
-    lesson: LessonResponse,
-    slotIndex: number,
-    totalSlots: number,
-) {
+function getLessonDurationSpan(lesson: LessonResponse, slotIndex: number, totalSlots: number) {
     const duration = Number(lesson.durationHours);
 
     if (!Number.isFinite(duration) || duration < 1) {
@@ -142,116 +164,34 @@ function getLessonDurationSpan(
     return Math.min(Math.max(1, Math.round(duration)), totalSlots - slotIndex);
 }
 
-function getLessonForExportCell(
-    lessons: LessonResponse[],
-    groupName: string,
-    slot: TimeSlot,
-    day: DayOfWeek,
-) {
-    return lessons.find((lesson) => {
-        return (
-            lesson.groupNames.includes(groupName) &&
-            formatTime(lesson.startTime) === formatTime(slot.startTime) &&
-            lesson.dayOfWeek === day
-        );
-    });
+function getDisplayTimetableName(name: string) {
+    return name.replace(/\s+v\d+$/i, "").trim();
+}
+
+function findLessonRoomId(lesson: LessonResponse | null, rooms: RoomResponse[]) {
+    if (!lesson?.roomName) return undefined;
+    return rooms.find((room) => room.name === lesson.roomName)?.id;
 }
 
 function makeLessonExportText(lesson: LessonResponse) {
-    return [
-        lesson.subjectName,
-        lesson.teacherName,
-        lesson.roomName || "No room",
-    ].join("\n");
+    return [lesson.subjectName, lesson.teacherName, lesson.roomName || "No room"].join("\n");
 }
 
-function getApiErrorMessage(error: unknown, fallback: string) {
-    if (
-        typeof error === "object" &&
-        error !== null &&
-        "response" in error
-    ) {
-        const axiosError = error as {
-            response?: {
-                data?: unknown;
-                status?: number;
-            };
-        };
-
-        const data = axiosError.response?.data;
-
-        if (typeof data === "string") return data;
-
-        if (typeof data === "object" && data !== null) {
-            const body = data as {
-                message?: string;
-                error?: string;
-                details?: string;
-            };
-
-            if (body.message) return body.message;
-            if (body.error) return body.error;
-            if (body.details) return body.details;
-        }
-
-        if (axiosError.response?.status === 400) {
-            return "Invalid request. Check selected data and try again.";
-        }
-
-        if (axiosError.response?.status === 403) {
-            return "You do not have permission to perform this action.";
-        }
-
-        if (axiosError.response?.status === 404) {
-            return "Timetable data was not found.";
-        }
-    }
-
-    return fallback;
+function getLessonForExportCell(lessons: LessonResponse[], groupName: string, slot: TimeSlot, day: DayOfWeek) {
+    return lessons.find((lesson) =>
+        lesson.groupNames.includes(groupName) &&
+        formatTime(lesson.startTime) === formatTime(slot.startTime) &&
+        lesson.dayOfWeek === day,
+    );
 }
 
-function getStatusVariant(status: TimetableStatus) {
-    switch (status) {
-        case "PUBLISHED":
-            return "success";
-        case "GENERATED":
-            return "info";
-        case "PARTIAL":
-            return "warning";
-        case "ARCHIVED":
-            return "secondary";
-        default:
-            return "outline";
-    }
-}
-
-function getPlacementVariant(status: string) {
-    switch (status) {
-        case "SCHEDULED":
-            return "success";
-        case "PARTIAL":
-            return "warning";
-        case "FAILED":
-            return "destructive";
-        case "PENDING":
-            return "secondary";
-        default:
-            return "outline";
-    }
-}
-
-export default function TimetableDetailPage({
-                                                params,
-                                            }: {
-    params: Promise<{ id: string }>;
-}) {
+export default function TimetableDetailPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = use(params);
     const timetableId = Number(id);
 
     const [timetable, setTimetable] = useState<TimetableResponse | null>(null);
     const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
     const [lessons, setLessons] = useState<LessonResponse[]>([]);
-
     const [subjects, setSubjects] = useState<SubjectResponse[]>([]);
     const [teachers, setTeachers] = useState<TeacherResponse[]>([]);
     const [groups, setGroups] = useState<StudyGroupResponse[]>([]);
@@ -259,30 +199,50 @@ export default function TimetableDetailPage({
     const [faculties, setFaculties] = useState<FacultyResponse[]>([]);
     const [departments, setDepartments] = useState<DepartmentOption[]>([]);
     const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
+    const [lunches, setLunches] = useState<LunchResponse[]>([]);
 
     const [loading, setLoading] = useState(true);
+    const [actionLoading, setActionLoading] = useState(false);
+    const [publishing, setPublishing] = useState(false);
     const [error, setError] = useState("");
-    const [successMessage, setSuccessMessage] = useState("");
 
     const [showAssignmentForm, setShowAssignmentForm] = useState(false);
+    const [editingAssignment, setEditingAssignment] = useState<AssignmentResponse | null>(null);
+    const [assignmentsDrawerOpen, setAssignmentsDrawerOpen] = useState(false);
     const [showGenerateModal, setShowGenerateModal] = useState(false);
+    const [generatingMode, setGeneratingMode] = useState<GenerationMode | null>(null);
     const [showExportModal, setShowExportModal] = useState(false);
-    const [showAssignments, setShowAssignments] = useState(false);
+    const [generationResult, setGenerationResult] = useState<GenerationResponse | null>(null);
+    const [manualAssignmentId, setManualAssignmentId] = useState<number | null>(null);
 
-    const [generating, setGenerating] = useState(false);
-    const [publishing, setPublishing] = useState(false);
+    const [lessonDetailsOpen, setLessonDetailsOpen] = useState(false);
+    const [selectedLesson, setSelectedLesson] = useState<LessonResponse | null>(null);
+    const [lessonFormOpen, setLessonFormOpen] = useState(false);
+    const [editingLesson, setEditingLesson] = useState<LessonResponse | null>(null);
+    const [lessonInitialValues, setLessonInitialValues] = useState<{
+        assignmentId?: number;
+        dayOfWeek?: DayOfWeek;
+        startTime?: string;
+        durationHours?: number;
+        roomId?: number;
+        groupName?: string;
+    } | undefined>();
 
-    const [generationResult, setGenerationResult] =
-        useState<GenerationResponse | null>(null);
-    const [manualAssignmentId, setManualAssignmentId] = useState<number | null>(
-        null,
-    );
+    const [timeSlotModalOpen, setTimeSlotModalOpen] = useState(false);
+    const [editingTimeSlot, setEditingTimeSlot] = useState<TimeSlot | null>(null);
+
+    const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+    const [deleteMode, setDeleteMode] = useState<DeleteMode>("SIMPLE");
 
     const [selectedDay, setSelectedDay] = useState<DayOfWeek | "ALL">("ALL");
     const [selectedFaculty, setSelectedFaculty] = useState<FilterValue>("ALL");
-    const [selectedDepartment, setSelectedDepartment] =
-        useState<FilterValue>("ALL");
+    const [selectedDepartment, setSelectedDepartment] = useState<FilterValue>("ALL");
     const [selectedGroup, setSelectedGroup] = useState<FilterValue>("ALL");
+    const [density, setDensity] = useState<GridDensity>("medium");
+    const [gridZoom, setGridZoom] = useState(100);
+    const [editingGridZoom, setEditingGridZoom] = useState(false);
+    const [gridZoomDraft, setGridZoomDraft] = useState("100");
+    const [mainTab, setMainTab] = useState<MainTab>("schedule");
 
     useEffect(() => {
         if (!timetableId || Number.isNaN(timetableId) || timetableId <= 0) {
@@ -306,9 +266,7 @@ export default function TimetableDetailPage({
     const loadData = async (initial = false) => {
         try {
             if (initial) setLoading(true);
-
             setError("");
-            setSuccessMessage("");
 
             const [
                 timetableData,
@@ -321,6 +279,7 @@ export default function TimetableDetailPage({
                 facultiesData,
                 timeSlotsData,
                 departmentsData,
+                lunchesData,
             ] = await Promise.all([
                 timetableApi.getTimetable(timetableId),
                 assignmentApi.getAssignmentsByTimetable(timetableId),
@@ -332,6 +291,7 @@ export default function TimetableDetailPage({
                 facultyApi.getFaculties(),
                 timeSlotApi.getTimeSlots(),
                 departmentApi.getDepartments(),
+                lunchApi.getLunchesByTimetable(timetableId),
             ]);
 
             setTimetable(timetableData);
@@ -344,8 +304,11 @@ export default function TimetableDetailPage({
             setFaculties(facultiesData);
             setTimeSlots(timeSlotsData);
             setDepartments(departmentsData as DepartmentOption[]);
+            setLunches(lunchesData);
         } catch (err) {
-            setError(getApiErrorMessage(err, "Failed to load timetable data"));
+            const message = getApiErrorMessage(err, "Failed to load timetable data");
+            setError(message);
+            toast.error(message);
         } finally {
             if (initial) setLoading(false);
         }
@@ -353,214 +316,164 @@ export default function TimetableDetailPage({
 
     const filteredDepartments = useMemo(() => {
         if (selectedFaculty === "ALL") return departments;
-
-        return departments.filter(
-            (department) => department.facultyId === selectedFaculty,
-        );
+        return departments.filter((department) => department.facultyId === selectedFaculty);
     }, [departments, selectedFaculty]);
 
     const filteredGroups = useMemo(() => {
         let result = groups;
 
-        if (selectedFaculty !== "ALL") {
-            result = result.filter((group) => group.facultyId === selectedFaculty);
-        }
-
-        if (selectedDepartment !== "ALL") {
-            result = result.filter(
-                (group) => group.departmentId === selectedDepartment,
-            );
-        }
-
-        if (selectedGroup !== "ALL") {
-            result = result.filter((group) => group.id === selectedGroup);
-        }
+        if (selectedFaculty !== "ALL") result = result.filter((group) => group.facultyId === selectedFaculty);
+        if (selectedDepartment !== "ALL") result = result.filter((group) => group.departmentId === selectedDepartment);
+        if (selectedGroup !== "ALL") result = result.filter((group) => group.id === selectedGroup);
 
         return result;
     }, [groups, selectedFaculty, selectedDepartment, selectedGroup]);
 
     const filteredLessons = useMemo(() => {
-        const allowedGroupNames = new Set(
-            filteredGroups.map((group) => group.name),
-        );
-
-        const byGroup = lessons.filter((lesson) =>
-            lesson.groupNames.some((groupName) => allowedGroupNames.has(groupName)),
-        );
-
+        const groupNames = new Set(filteredGroups.map((group) => group.name));
+        const byGroup = lessons.filter((lesson) => lesson.groupNames.some((groupName) => groupNames.has(groupName)));
         if (selectedDay === "ALL") return byGroup;
-
         return byGroup.filter((lesson) => lesson.dayOfWeek === selectedDay);
     }, [lessons, filteredGroups, selectedDay]);
 
-    const scheduledAssignments = useMemo(() => {
-        return assignments.filter(
-            (assignment) => assignment.placementStatus === "SCHEDULED",
-        ).length;
-    }, [assignments]);
-
-    const failedAssignments = useMemo(() => {
-        return assignments.filter(
-            (assignment) =>
-                assignment.requiresManualInput ||
-                assignment.placementStatus === "FAILED",
-        ).length;
-    }, [assignments]);
+    const filteredLunches = useMemo(() => {
+        const groupIds = new Set(filteredGroups.map((group) => group.id));
+        const byGroup = lunches.filter((lunch) => groupIds.has(lunch.groupId));
+        if (selectedDay === "ALL") return byGroup;
+        return byGroup.filter((lunch) => lunch.dayOfWeek === selectedDay);
+    }, [lunches, filteredGroups, selectedDay]);
 
     const handleGenerate = async (mode: GenerationMode) => {
         try {
-            setGenerating(true);
+            setActionLoading(true);
+            setGeneratingMode(mode);
             setError("");
-            setSuccessMessage("");
 
             const result = await timetableApi.generateTimetable(timetableId, mode);
-
             setGenerationResult(result);
             setShowGenerateModal(false);
-
             await loadData();
 
-            setSuccessMessage(
-                `Generated ${result.placedLessonsCount} lessons. Failed: ${result.failedVerticesCount}.`,
-            );
+            toast.success(`Generated ${result.placedLessonsCount} lessons. Failed: ${result.failedVerticesCount}.`);
         } catch (err) {
-            setError(getApiErrorMessage(err, "Generation failed"));
+            const message = getApiErrorMessage(err, "Generation failed");
+            setError(message);
+            toast.error(message);
         } finally {
-            setGenerating(false);
+            setGeneratingMode(null);
+            setActionLoading(false);
         }
     };
 
     const handlePublish = async () => {
-        if (!timetable) return;
-
-        if (timetable.status === "PUBLISHED") return;
-
-        if (!confirm(`Publish timetable "${timetable.name}"?`)) return;
+        if (!timetable || timetable.status === "PUBLISHED") return;
 
         try {
+            setActionLoading(true);
             setPublishing(true);
             setError("");
-            setSuccessMessage("");
-
             await timetableApi.publishTimetable(timetableId);
             await loadData();
-
-            setSuccessMessage("Timetable published successfully");
+            toast.success("Timetable published");
         } catch (err) {
-            setError(getApiErrorMessage(err, "Failed to publish timetable"));
+            const message = getApiErrorMessage(err, "Failed to publish timetable");
+            setError(message);
+            toast.error(message);
         } finally {
             setPublishing(false);
+            setActionLoading(false);
         }
     };
 
-    const handleDelete = async () => {
-        if (!timetable) return;
+    const requestDelete = (target: DeleteTarget) => {
+        setDeleteTarget(target);
+        setDeleteMode("SIMPLE");
+    };
 
-        if (!confirm(`Delete timetable "${timetable.name}"?`)) return;
+    const handleConfirmDelete = async () => {
+        if (!deleteTarget) return;
 
         try {
+            setActionLoading(true);
             setError("");
 
-            await timetableApi.deleteTimetable(timetableId);
+            if (deleteTarget.type === "timetable") {
+                await timetableApi.deleteTimetable(timetableId, deleteMode);
+                toast.success("Timetable deleted");
+                window.location.href = "/timetables";
+                return;
+            }
 
-            window.location.href = "/timetables";
+            if (deleteTarget.type === "lesson") {
+                await lessonApi.deleteLesson(timetableId, deleteTarget.lesson.id);
+                toast.success("Lesson deleted");
+            }
+
+            if (deleteTarget.type === "assignment") {
+                await assignmentApi.deleteAssignment(timetableId, deleteTarget.assignment.id);
+                toast.success("Assignment deleted");
+            }
+
+            if (deleteTarget.type === "lunch") {
+                await lunchApi.deleteLunch(deleteTarget.lunch.id);
+                toast.success("Lunch block deleted");
+            }
+
+            setDeleteTarget(null);
+            await loadData();
         } catch (err) {
-            setError(getApiErrorMessage(err, "Failed to delete timetable"));
+            const message = getApiErrorMessage(err, "Delete failed");
+            setError(message);
+            toast.error(message);
+        } finally {
+            setActionLoading(false);
         }
     };
 
     const handleExport = async (format: "pdf" | "excel") => {
         if (!timetable) return;
 
-        const slotsToExport = [...timeSlots].sort((a, b) => a.order - b.order);
+        const slotsToExport = [...timeSlots].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
         const groupsToExport = filteredGroups;
-
-        const daysToExport =
-            selectedDay === "ALL"
-                ? VISIBLE_DAYS
-                : [selectedDay];
-
+        const daysToExport = selectedDay === "ALL" ? VISIBLE_DAYS : [selectedDay];
         const headers = [
             "Day",
             "Group",
-            ...slotsToExport.map(
-                (slot) =>
-                    `${formatTime(slot.startTime)}–${formatTime(slot.endTime)}`,
-            ),
+            ...slotsToExport.map((slot) => `${formatTime(slot.startTime)}-${formatTime(slot.endTime)}`),
         ];
-
-        const fileBaseName = `timetable_${timetable.id}_${
-            selectedDay === "ALL" ? "all_days" : selectedDay.toLowerCase()
-        }`;
+        const displayTimetableName = getDisplayTimetableName(timetable.name);
+        const fileName = `timetable_${timetable.id}_${selectedDay === "ALL" ? "all_days" : selectedDay.toLowerCase()}`;
 
         if (format === "excel") {
             const rows: string[][] = [];
             const merges: XLSX.Range[] = [];
-            const styledCells = new Map<
-                string,
-                {
-                    fill: string;
-                    text: string;
-                    bold?: boolean;
-                    center?: boolean;
-                }
-            >();
-
+            const styledCells = new Map<string, { fill: string; text: string; bold?: boolean }>();
             let currentExcelRow = 1;
 
             daysToExport.forEach((day) => {
                 const dayStartRow = currentExcelRow;
 
                 groupsToExport.forEach((group, groupIndex) => {
-                    const row: string[] = [
-                        groupIndex === 0 ? day : "",
-                        group.name,
-                    ];
-
+                    const row: string[] = [groupIndex === 0 ? day : "", group.name];
                     let slotIndex = 0;
 
                     while (slotIndex < slotsToExport.length) {
                         const slot = slotsToExport[slotIndex];
-                        const lesson = getLessonForExportCell(
-                            filteredLessons,
-                            group.name,
-                            slot,
-                            day,
-                        );
+                        const lesson = getLessonForExportCell(filteredLessons, group.name, slot, day);
 
                         if (lesson) {
-                            const span = getLessonDurationSpan(
-                                lesson,
-                                slotIndex,
-                                slotsToExport.length,
-                            );
-
-                            row.push(makeLessonExportText(lesson));
-
+                            const span = getLessonDurationSpan(lesson, slotIndex, slotsToExport.length);
                             const cellColumnIndex = 2 + slotIndex;
-                            const cellAddress = XLSX.utils.encode_cell({
-                                r: currentExcelRow,
-                                c: cellColumnIndex,
-                            });
-
+                            const cellAddress = XLSX.utils.encode_cell({ r: currentExcelRow, c: cellColumnIndex });
                             const color = getExportColorByLesson(lesson);
 
-                            styledCells.set(cellAddress, {
-                                fill: color.fill,
-                                text: color.text,
-                                bold: true,
-                            });
+                            row.push(makeLessonExportText(lesson));
+                            styledCells.set(cellAddress, { fill: color.fill, text: color.text, bold: true });
 
                             if (span > 1) {
                                 merges.push({
-                                    s: {
-                                        r: currentExcelRow,
-                                        c: cellColumnIndex,
-                                    },
-                                    e: {
-                                        r: currentExcelRow,
-                                        c: cellColumnIndex + span - 1,
-                                    },
+                                    s: { r: currentExcelRow, c: cellColumnIndex },
+                                    e: { r: currentExcelRow, c: cellColumnIndex + span - 1 },
                                 });
 
                                 for (let offset = 1; offset < span; offset += 1) {
@@ -581,54 +494,64 @@ export default function TimetableDetailPage({
 
                 if (groupsToExport.length > 1) {
                     merges.push({
-                        s: {
-                            r: dayStartRow,
-                            c: 0,
-                        },
-                        e: {
-                            r: dayStartRow + groupsToExport.length - 1,
-                            c: 0,
-                        },
+                        s: { r: dayStartRow, c: 0 },
+                        e: { r: dayStartRow + groupsToExport.length - 1, c: 0 },
                     });
                 }
             });
 
-            const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+            const worksheet = XLSX.utils.aoa_to_sheet([]);
             const workbook = XLSX.utils.book_new();
 
+            XLSX.utils.sheet_add_aoa(
+                worksheet,
+                [[`${displayTimetableName} - ${timetable.academicYearStart}-${timetable.academicYearEnd} - ${timetable.semester}`]],
+                { origin: "A1" },
+            );
+            XLSX.utils.sheet_add_aoa(worksheet, [headers, ...rows], { origin: "A3" });
+
+            worksheet["!merges"] = [
+                { s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(2, headers.length - 1) } },
+                ...merges.map((merge) => ({
+                    s: { r: merge.s.r + 2, c: merge.s.c },
+                    e: { r: merge.e.r + 2, c: merge.e.c },
+                })),
+            ];
             worksheet["!cols"] = [
                 { wch: 16 },
                 { wch: 20 },
                 ...slotsToExport.map(() => ({ wch: 24 })),
             ];
-
             worksheet["!rows"] = [
+                { hpt: 30 },
+                { hpt: 8 },
                 { hpt: 28 },
                 ...rows.map(() => ({ hpt: 58 })),
             ];
 
-            worksheet["!merges"] = merges;
+            worksheet["A1"].s = {
+                fill: { patternType: "solid", fgColor: { rgb: "111827" } },
+                font: { bold: true, color: { rgb: "FFFFFF" }, sz: 14 },
+                alignment: { vertical: "center", horizontal: "left" },
+            };
 
             const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
 
-            for (let row = range.s.r; row <= range.e.r; row += 1) {
+            for (let row = 2; row <= range.e.r; row += 1) {
                 for (let col = range.s.c; col <= range.e.c; col += 1) {
                     const address = XLSX.utils.encode_cell({ r: row, c: col });
+                    const originalAddress = XLSX.utils.encode_cell({ r: row - 2, c: col });
 
                     if (!worksheet[address]) {
-                        worksheet[address] = {
-                            t: "s",
-                            v: "",
-                        };
+                        worksheet[address] = { t: "s", v: "" };
                     }
 
                     const cell = worksheet[address];
                     const value = String(cell.v || "");
-
-                    const isHeader = row === 0;
+                    const isHeader = row === 2;
                     const isDayColumn = col === 0;
                     const isGroupColumn = col === 1;
-                    const customStyle = styledCells.get(address);
+                    const customStyle = styledCells.get(originalAddress);
 
                     let fillColor = "FFFFFF";
                     let textColor = "111827";
@@ -647,7 +570,6 @@ export default function TimetableDetailPage({
                         horizontal = "center";
                     } else if (isGroupColumn) {
                         fillColor = "F8FAFC";
-                        textColor = "111827";
                         bold = true;
                     } else if (customStyle) {
                         fillColor = customStyle.fill;
@@ -661,219 +583,37 @@ export default function TimetableDetailPage({
                     }
 
                     cell.s = {
-                        fill: {
-                            patternType: "solid",
-                            fgColor: { rgb: fillColor },
-                        },
-                        font: {
-                            bold,
-                            color: { rgb: textColor },
-                            sz: isHeader ? 11 : 9,
-                        },
-                        alignment: {
-                            vertical: "center",
-                            horizontal,
-                            wrapText: true,
-                        },
+                        fill: { patternType: "solid", fgColor: { rgb: fillColor } },
+                        font: { bold, color: { rgb: textColor }, sz: isHeader ? 11 : 9 },
+                        alignment: { vertical: "center", horizontal, wrapText: true },
                         border: {
-                            top: {
-                                style: "thin",
-                                color: { rgb: "CBD5E1" },
-                            },
-                            bottom: {
-                                style: "thin",
-                                color: { rgb: "CBD5E1" },
-                            },
-                            left: {
-                                style: "thin",
-                                color: { rgb: "CBD5E1" },
-                            },
-                            right: {
-                                style: "thin",
-                                color: { rgb: "CBD5E1" },
-                            },
+                            top: { style: "thin", color: { rgb: "CBD5E1" } },
+                            bottom: { style: "thin", color: { rgb: "CBD5E1" } },
+                            left: { style: "thin", color: { rgb: "CBD5E1" } },
+                            right: { style: "thin", color: { rgb: "CBD5E1" } },
                         },
                     };
                 }
             }
-
-            const titleRow = [
-                `${timetable.name} · ${timetable.academicYearStart}–${timetable.academicYearEnd} · ${timetable.semester}`,
-            ];
-
-            XLSX.utils.sheet_add_aoa(worksheet, [titleRow], {
-                origin: "A1",
-            });
-
-            XLSX.utils.sheet_add_aoa(worksheet, [headers, ...rows], {
-                origin: "A3",
-            });
-
-            worksheet["!merges"] = [
-                {
-                    s: { r: 0, c: 0 },
-                    e: { r: 0, c: Math.max(2, headers.length - 1) },
-                },
-                ...merges.map((merge) => ({
-                    s: {
-                        r: merge.s.r + 2,
-                        c: merge.s.c,
-                    },
-                    e: {
-                        r: merge.e.r + 2,
-                        c: merge.e.c,
-                    },
-                })),
-            ];
-
-            worksheet["A1"].s = {
-                fill: {
-                    patternType: "solid",
-                    fgColor: { rgb: "111827" },
-                },
-                font: {
-                    bold: true,
-                    color: { rgb: "FFFFFF" },
-                    sz: 14,
-                },
-                alignment: {
-                    vertical: "center",
-                    horizontal: "left",
-                },
-            };
-
-            const shiftedRange = XLSX.utils.decode_range(
-                worksheet["!ref"] || "A1",
-            );
-
-            for (let row = 2; row <= shiftedRange.e.r; row += 1) {
-                for (let col = shiftedRange.s.c; col <= shiftedRange.e.c; col += 1) {
-                    const address = XLSX.utils.encode_cell({ r: row, c: col });
-                    const cell = worksheet[address];
-
-                    if (!cell) continue;
-
-                    const originalAddress = XLSX.utils.encode_cell({
-                        r: row - 2,
-                        c: col,
-                    });
-
-                    const customStyle = styledCells.get(originalAddress);
-                    const value = String(cell.v || "");
-
-                    const isHeader = row === 2;
-                    const isDayColumn = col === 0;
-                    const isGroupColumn = col === 1;
-
-                    let fillColor = "FFFFFF";
-                    let textColor = "111827";
-                    let bold = false;
-                    let horizontal: "left" | "center" = "left";
-
-                    if (isHeader) {
-                        fillColor = "111827";
-                        textColor = "FFFFFF";
-                        bold = true;
-                        horizontal = "center";
-                    } else if (isDayColumn) {
-                        fillColor = "DBEAFE";
-                        textColor = "1E3A8A";
-                        bold = true;
-                        horizontal = "center";
-                    } else if (isGroupColumn) {
-                        fillColor = "F8FAFC";
-                        textColor = "111827";
-                        bold = true;
-                    } else if (customStyle) {
-                        fillColor = customStyle.fill;
-                        textColor = customStyle.text;
-                        bold = true;
-                    } else if (value.trim()) {
-                        const color = getExportColorByText(value.split("\n")[0]);
-                        fillColor = color.fill;
-                        textColor = color.text;
-                        bold = true;
-                    }
-
-                    cell.s = {
-                        fill: {
-                            patternType: "solid",
-                            fgColor: { rgb: fillColor },
-                        },
-                        font: {
-                            bold,
-                            color: { rgb: textColor },
-                            sz: isHeader ? 11 : 9,
-                        },
-                        alignment: {
-                            vertical: "center",
-                            horizontal,
-                            wrapText: true,
-                        },
-                        border: {
-                            top: {
-                                style: "thin",
-                                color: { rgb: "CBD5E1" },
-                            },
-                            bottom: {
-                                style: "thin",
-                                color: { rgb: "CBD5E1" },
-                            },
-                            left: {
-                                style: "thin",
-                                color: { rgb: "CBD5E1" },
-                            },
-                            right: {
-                                style: "thin",
-                                color: { rgb: "CBD5E1" },
-                            },
-                        },
-                    };
-                }
-            }
-
-            worksheet["!cols"] = [
-                { wch: 16 },
-                { wch: 20 },
-                ...slotsToExport.map(() => ({ wch: 24 })),
-            ];
-
-            worksheet["!rows"] = [
-                { hpt: 30 },
-                { hpt: 8 },
-                { hpt: 28 },
-                ...rows.map(() => ({ hpt: 58 })),
-            ];
 
             XLSX.utils.book_append_sheet(workbook, worksheet, "Timetable");
-            XLSX.writeFile(workbook, `${fileBaseName}.xlsx`);
+            XLSX.writeFile(workbook, `${fileName}.xlsx`);
         } else {
-            const GROUPS_PER_PAGE = 10;
-
-            const doc = new jsPDF({
-                orientation: "landscape",
-                unit: "mm",
-                format: "a3",
-            });
-
+            const groupsPerPage = 10;
+            const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a3" });
             const pageWidth = doc.internal.pageSize.getWidth();
             const pageHeight = doc.internal.pageSize.getHeight();
-
             let isFirstPage = true;
 
             const drawPageHeader = (day: DayOfWeek, pagePart: number) => {
                 doc.setFillColor(17, 24, 39);
                 doc.rect(0, 0, pageWidth, 24, "F");
-
                 doc.setTextColor(255, 255, 255);
                 doc.setFontSize(14);
-                doc.text(timetable.name, 12, 12);
-
+                doc.text(displayTimetableName, 12, 12);
                 doc.setFontSize(9);
                 doc.text(
-                    `${timetable.academicYearStart}–${timetable.academicYearEnd} · ${timetable.semester} · ${day}${
-                        pagePart > 1 ? ` · Part ${pagePart}` : ""
-                    }`,
+                    `${timetable.academicYearStart}-${timetable.academicYearEnd} - ${timetable.semester} - ${day}${pagePart > 1 ? ` - Part ${pagePart}` : ""}`,
                     12,
                     18,
                 );
@@ -882,62 +622,47 @@ export default function TimetableDetailPage({
             const drawFooter = () => {
                 doc.setFontSize(8);
                 doc.setTextColor(100);
-
-                doc.text(
-                    `Generated from Timetable Generator · ${new Date().toLocaleDateString()}`,
-                    12,
-                    pageHeight - 8,
-                );
+                doc.text(`Generated from Timetable Generator - ${new Date().toLocaleDateString()}`, 12, pageHeight - 8);
             };
 
-            const buildRowsForDay = (
-                day: DayOfWeek,
-                groupsChunk: StudyGroupResponse[],
-            ) => {
-                const bodyRows: any[][] = [];
+            type PdfCell = string | {
+                content: string;
+                colSpan?: number;
+                styles: Record<string, unknown>;
+            };
+
+            const buildRowsForDay = (day: DayOfWeek, groupsChunk: StudyGroupResponse[]) => {
+                const bodyRows: PdfCell[][] = [];
 
                 groupsChunk.forEach((group) => {
-                    const row: any[] = [];
-
-                    row.push({
-                        content: group.name,
-                        styles: {
-                            fillColor: [248, 250, 252],
-                            textColor: [17, 24, 39],
-                            fontStyle: "bold",
-                            valign: "middle",
+                    const row: PdfCell[] = [
+                        {
+                            content: group.name,
+                            styles: {
+                                fillColor: [248, 250, 252],
+                                textColor: [17, 24, 39],
+                                fontStyle: "bold",
+                                valign: "middle",
+                            },
                         },
-                    });
+                    ];
 
                     let slotIndex = 0;
 
                     while (slotIndex < slotsToExport.length) {
                         const slot = slotsToExport[slotIndex];
-
-                        const lesson = getLessonForExportCell(
-                            filteredLessons,
-                            group.name,
-                            slot,
-                            day,
-                        );
+                        const lesson = getLessonForExportCell(filteredLessons, group.name, slot, day);
 
                         if (lesson) {
-                            const span = getLessonDurationSpan(
-                                lesson,
-                                slotIndex,
-                                slotsToExport.length,
-                            );
-
+                            const span = getLessonDurationSpan(lesson, slotIndex, slotsToExport.length);
                             const color = getExportColorByLesson(lesson);
-                            const fill = hexToRgb(color.fill);
-                            const text = hexToRgb(color.text);
 
                             row.push({
                                 content: makeLessonExportText(lesson),
                                 colSpan: span,
                                 styles: {
-                                    fillColor: fill,
-                                    textColor: text,
+                                    fillColor: hexToRgb(color.fill),
+                                    textColor: hexToRgb(color.text),
                                     fontStyle: "bold",
                                     valign: "middle",
                                     halign: "left",
@@ -978,7 +703,7 @@ export default function TimetableDetailPage({
                     },
                 },
                 ...slotsToExport.map((slot) => ({
-                    content: `${formatTime(slot.startTime)}–${formatTime(slot.endTime)}`,
+                    content: `${formatTime(slot.startTime)}-${formatTime(slot.endTime)}`,
                     styles: {
                         fillColor: [17, 24, 39] as [number, number, number],
                         textColor: [255, 255, 255] as [number, number, number],
@@ -990,23 +715,15 @@ export default function TimetableDetailPage({
             ];
 
             daysToExport.forEach((day) => {
-                for (
-                    let startIndex = 0;
-                    startIndex < groupsToExport.length;
-                    startIndex += GROUPS_PER_PAGE
-                ) {
-                    const pagePart = Math.floor(startIndex / GROUPS_PER_PAGE) + 1;
-                    const groupsChunk = groupsToExport.slice(
-                        startIndex,
-                        startIndex + GROUPS_PER_PAGE,
-                    );
+                for (let startIndex = 0; startIndex < groupsToExport.length; startIndex += groupsPerPage) {
+                    const pagePart = Math.floor(startIndex / groupsPerPage) + 1;
+                    const groupsChunk = groupsToExport.slice(startIndex, startIndex + groupsPerPage);
 
                     if (!isFirstPage) {
                         doc.addPage();
                     }
 
                     isFirstPage = false;
-
                     drawPageHeader(day, pagePart);
 
                     autoTable(doc, {
@@ -1037,87 +754,169 @@ export default function TimetableDetailPage({
                                 textColor: [17, 24, 39],
                             },
                         },
-                        margin: {
-                            left: 6,
-                            right: 6,
-                            bottom: 14,
-                        },
+                        margin: { left: 6, right: 6, bottom: 14 },
                         tableWidth: "auto",
                         didDrawPage: drawFooter,
                     });
                 }
             });
 
-            doc.save(`${fileBaseName}.pdf`);
+            doc.save(`${fileName}.pdf`);
         }
 
         setShowExportModal(false);
+        toast.success(`${format.toUpperCase()} exported`);
     };
 
-    const openManualModal = (assignmentId: number) => {
-        setManualAssignmentId(assignmentId);
-    };
+    const openManualModal = (assignmentId: number) => setManualAssignmentId(assignmentId);
+    const closeManualModal = () => setManualAssignmentId(null);
 
-    const closeManualModal = () => {
-        setManualAssignmentId(null);
-    };
-
-    const handleManualPlace = async (data: {
-        dayOfWeek: DayOfWeek;
-        startTime: string;
-        durationHours: number;
-        roomId: number;
-    }) => {
+    const handleManualPlace = async (data: { dayOfWeek: DayOfWeek; startTime: string; durationHours: number; roomId: number }) => {
         if (!manualAssignmentId) return;
 
         try {
-            setError("");
-            setSuccessMessage("");
-
-            const success = await timetableApi.manualPlaceLesson(
-                timetableId,
-                manualAssignmentId,
-                data,
-            );
+            setActionLoading(true);
+            const success = await timetableApi.manualPlaceLesson(timetableId, manualAssignmentId, data);
 
             if (!success) {
-                setError("Manual placement failed because of conflicts");
+                toast.error("Manual placement failed because of conflicts");
                 return;
             }
 
             await loadData();
             closeManualModal();
-
-            setSuccessMessage("Lesson placed manually");
+            toast.success("Lesson placed manually");
         } catch (err) {
-            setError(getApiErrorMessage(err, "Manual placement failed"));
+            const message = getApiErrorMessage(err, "Manual placement failed");
+            setError(message);
+            toast.error(message);
+        } finally {
+            setActionLoading(false);
         }
     };
 
-    const handleSaveAssignment = async (data: unknown) => {
+    const handleSaveAssignment = async (data: AssignmentRequest) => {
         try {
+            setActionLoading(true);
             setError("");
-            setSuccessMessage("");
 
-            await assignmentApi.createAssignment(timetableId, data);
+            if (editingAssignment) {
+                await assignmentApi.updateAssignment(timetableId, editingAssignment.id, data);
+                toast.success("Assignment updated");
+            } else {
+                await assignmentApi.createAssignment(timetableId, data);
+                toast.success("Assignment created");
+            }
 
             setShowAssignmentForm(false);
+            setEditingAssignment(null);
             await loadData();
-
-            setSuccessMessage("Assignment created successfully");
         } catch (err) {
-            setError(getApiErrorMessage(err, "Failed to create assignment"));
+            const message = getApiErrorMessage(err, "Failed to save assignment");
+            setError(message);
+            toast.error(message);
+        } finally {
+            setActionLoading(false);
         }
     };
 
-    const handleCellClick = () => {
-        setShowAssignmentForm(true);
+    const handleCellClick = (group: StudyGroupResponse, slot: TimeSlot, day?: DayOfWeek) => {
+        setEditingLesson(null);
+        setLessonInitialValues({
+            groupName: group.name,
+            dayOfWeek: day ?? (selectedDay === "ALL" ? undefined : selectedDay),
+            startTime: formatTime(slot.startTime),
+            durationHours: 1,
+        });
+        setLessonFormOpen(true);
     };
 
     const handleLessonClick = (lesson: LessonResponse) => {
-        alert(
-            `${lesson.subjectName}\n${lesson.teacherName}\n${lesson.groupNames.join(", ")}\n${lesson.roomName || "No room"}`,
+        setSelectedLesson(lesson);
+        setLessonDetailsOpen(true);
+    };
+
+    const handleSaveLesson = async (data: LessonRequest) => {
+        try {
+            setActionLoading(true);
+            setError("");
+
+            if (editingLesson) {
+                await lessonApi.updateLesson(timetableId, editingLesson.id, data);
+                toast.success("Lesson updated");
+            } else {
+                await lessonApi.createLesson(timetableId, data);
+                toast.success("Lesson created");
+            }
+
+            setLessonFormOpen(false);
+            setEditingLesson(null);
+            setLessonInitialValues(undefined);
+            await loadData();
+        } catch (err) {
+            const message = getApiErrorMessage(err, "Failed to save lesson");
+            setError(message);
+            toast.error(message);
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleSaveTimeSlot = async (slotId: number | null, data: TimeSlotRequest) => {
+        try {
+            setActionLoading(true);
+            if (slotId) {
+                await timeSlotApi.updateTimeSlot(slotId, data);
+                toast.success("Time slot updated");
+            } else {
+                await timeSlotApi.createTimeSlot(data);
+                toast.success("Time slot created");
+            }
+
+            setTimeSlotModalOpen(false);
+            setEditingTimeSlot(null);
+            await loadData();
+        } catch (err) {
+            const message = getApiErrorMessage(err, "Failed to save time slot");
+            setError(message);
+            toast.error(message);
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleCreateLunch = async (data: LunchRequest) => {
+        try {
+            setActionLoading(true);
+            await lunchApi.createLunch(data);
+            await loadData();
+            toast.success("Lunch block added");
+        } catch (err) {
+            const message = getApiErrorMessage(err, "Failed to create lunch block");
+            setError(message);
+            toast.error(message);
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const updateGridZoom = (direction: 1 | -1) => {
+        setGridZoom((current) =>
+            Math.min(
+                Math.max(current + direction * GRID_ZOOM_STEP, MIN_GRID_ZOOM),
+                MAX_GRID_ZOOM,
+            ),
         );
+    };
+
+    const commitGridZoomDraft = () => {
+        const nextZoom = Number(gridZoomDraft);
+
+        if (Number.isFinite(nextZoom)) {
+            setGridZoom(Math.min(Math.max(Math.round(nextZoom), MIN_GRID_ZOOM), MAX_GRID_ZOOM));
+        }
+
+        setEditingGridZoom(false);
     };
 
     if (loading) {
@@ -1125,12 +924,13 @@ export default function TimetableDetailPage({
             <AppShell>
                 <div className="space-y-6">
                     <Skeleton className="h-28 w-full" />
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="grid gap-4 md:grid-cols-4">
+                        <Skeleton className="h-32 w-full" />
                         <Skeleton className="h-32 w-full" />
                         <Skeleton className="h-32 w-full" />
                         <Skeleton className="h-32 w-full" />
                     </div>
-                    <Skeleton className="h-[520px] w-full" />
+                    <Skeleton className="h-[620px] w-full" />
                 </div>
             </AppShell>
         );
@@ -1143,26 +943,11 @@ export default function TimetableDetailPage({
                     eyebrow="Scheduling"
                     title="Timetable not found"
                     description="The selected timetable could not be loaded."
-                    actions={
-                        <Button variant="outline" asChild>
-                            <Link href="/timetables">
-                                <ArrowLeft className="h-4 w-4" />
-                                Back to timetables
-                            </Link>
-                        </Button>
-                    }
+                    actions={<Button variant="outline" asChild><Link href="/timetables"><ArrowLeft className="h-4 w-4" />Back</Link></Button>}
                 />
-
                 <Card className="glass-card">
                     <CardContent className="py-12">
-                        <EmptyState
-                            title="Timetable not found"
-                            description="Go back to timetables and select another version."
-                            actionLabel="Back to timetables"
-                            onAction={() => {
-                                window.location.href = "/timetables";
-                            }}
-                        />
+                        <EmptyState title="Timetable not found" description="Go back to timetables and select another version." actionLabel="Back to timetables" onAction={() => { window.location.href = "/timetables"; }} />
                     </CardContent>
                 </Card>
             </AppShell>
@@ -1173,377 +958,245 @@ export default function TimetableDetailPage({
         <AppShell>
             <PageHeader
                 eyebrow="Scheduling"
-                title={timetable.name}
-                description={`Timetable #${timetable.id} · ${timetable.status}`}
+                title={getDisplayTimetableName(timetable.name)}
+                description={`${timetable.academicYearStart}-${timetable.academicYearEnd} - ${timetable.semester}`}
                 actions={
-                    <>
-                        <Button variant="outline" asChild>
-                            <Link href="/timetables">
-                                <ArrowLeft className="h-4 w-4" />
-                                Back
-                            </Link>
-                        </Button>
-
-                        <Button
-                            variant="outline"
-                            onClick={() => void loadData(true)}
-                        >
-                            <RefreshCcw className="h-4 w-4" />
-                            Refresh
-                        </Button>
-
-                        <Button onClick={() => setShowAssignmentForm(true)}>
-                            <Plus className="h-4 w-4" />
-                            Add assignment
-                        </Button>
-                    </>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Button variant="outline" asChild><Link href="/timetables"><ArrowLeft className="h-4 w-4" />Back</Link></Button>
+                        <Button onClick={() => { setEditingAssignment(null); setShowAssignmentForm(true); }}><Plus className="h-4 w-4" />Add assignment</Button>
+                    </div>
                 }
             />
 
-            {error && (
-                <Card className="mb-6 border-red-200 bg-red-50 text-red-800">
-                    <CardContent className="p-4 text-sm">{error}</CardContent>
-                </Card>
-            )}
-
-            {successMessage && (
-                <Card className="mb-6 border-emerald-200 bg-emerald-50 text-emerald-800">
-                    <CardContent className="p-4 text-sm">
-                        {successMessage}
-                    </CardContent>
-                </Card>
-            )}
-
-            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Status
-                        </CardTitle>
-                        <CalendarDays className="h-4 w-4 text-blue-700" />
-                    </CardHeader>
-                    <CardContent>
-                        <Badge variant={getStatusVariant(timetable.status) as any}>
-                            {timetable.status}
-                        </Badge>
-                        <p className="mt-3 text-xs text-muted-foreground">
-                            Current timetable state
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Lessons
-                        </CardTitle>
-                        <ClipboardList className="h-4 w-4 text-violet-700" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{lessons.length}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Placed lessons
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Assignments
-                        </CardTitle>
-                        <Badge variant="info">Source</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">
-                            {scheduledAssignments}/{assignments.length}
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Scheduled assignments
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Manual
-                        </CardTitle>
-                        <Badge variant={failedAssignments > 0 ? "warning" : "secondary"}>
-                            Review
-                        </Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">{failedAssignments}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Need manual placement
-                        </p>
-                    </CardContent>
-                </Card>
-            </section>
+            {error && <Card className="mb-6 border-red-200 bg-red-50 text-red-800"><CardContent className="p-4 text-sm">{error}</CardContent></Card>}
 
             <Card className="glass-card mt-6">
                 <CardHeader>
                     <div className="space-y-4">
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                            <select
-                                value={selectedDay}
-                                onChange={(event) =>
-                                    setSelectedDay(event.target.value as DayOfWeek | "ALL")
-                                }
-                                className="h-11 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                                <option value="ALL">All days</option>
-                                {VISIBLE_DAYS.map((day) => (
-                                    <option key={day} value={day}>
-                                        {DAYS_SHORT[day] ?? day}
-                                    </option>
-                                ))}
-                            </select>
-
-                            <select
-                                value={selectedFaculty}
-                                onChange={(event) =>
-                                    setSelectedFaculty(
-                                        event.target.value === "ALL"
-                                            ? "ALL"
-                                            : Number(event.target.value),
-                                    )
-                                }
-                                className="h-11 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                                <option value="ALL">All faculties</option>
-                                {faculties.map((faculty) => (
-                                    <option key={faculty.id} value={faculty.id}>
-                                        {faculty.name}
-                                    </option>
-                                ))}
-                            </select>
-
-                            <select
-                                value={selectedDepartment}
-                                onChange={(event) =>
-                                    setSelectedDepartment(
-                                        event.target.value === "ALL"
-                                            ? "ALL"
-                                            : Number(event.target.value),
-                                    )
-                                }
-                                className="h-11 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                                <option value="ALL">All departments</option>
-                                {filteredDepartments.map((department) => (
-                                    <option key={department.id} value={department.id}>
-                                        {department.name}
-                                    </option>
-                                ))}
-                            </select>
-
-                            <select
-                                value={selectedGroup}
-                                onChange={(event) =>
-                                    setSelectedGroup(
-                                        event.target.value === "ALL"
-                                            ? "ALL"
-                                            : Number(event.target.value),
-                                    )
-                                }
-                                className="h-11 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                                <option value="ALL">All groups</option>
-                                {filteredGroups.map((group) => (
-                                    <option key={group.id} value={group.id}>
-                                        {group.name}
-                                    </option>
-                                ))}
-                            </select>
+                        <div className="flex flex-wrap gap-2">
+                            {(["schedule", "diagnostics", "settings"] as MainTab[]).map((tab) => (
+                                <Button key={tab} variant={mainTab === tab ? "default" : "outline"} onClick={() => setMainTab(tab)}>
+                                    {tab === "schedule" ? "Schedule" : tab === "diagnostics" ? "Diagnostics" : "Settings"}
+                                </Button>
+                            ))}
                         </div>
 
-                        <div className="flex flex-wrap gap-2">
-                            <Button variant="outline" onClick={() => setShowGenerateModal(true)}>
-                                {generating ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Play className="h-4 w-4" />
-                                )}
-                                Generate
-                            </Button>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                            <select value={selectedDay} onChange={(event) => setSelectedDay(event.target.value as DayOfWeek | "ALL")} className="h-11 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-sm"><option value="ALL">All days</option>{VISIBLE_DAYS.map((day) => <option key={day} value={day}>{day.charAt(0) + day.slice(1).toLowerCase()}</option>)}</select>
+                            <select value={selectedFaculty} onChange={(event) => setSelectedFaculty(event.target.value === "ALL" ? "ALL" : Number(event.target.value))} className="h-11 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-sm"><option value="ALL">All faculties</option>{faculties.map((faculty) => <option key={faculty.id} value={faculty.id}>{faculty.name}</option>)}</select>
+                            <select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value === "ALL" ? "ALL" : Number(event.target.value))} className="h-11 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-sm"><option value="ALL">All departments</option>{filteredDepartments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select>
+                            <select value={selectedGroup} onChange={(event) => setSelectedGroup(event.target.value === "ALL" ? "ALL" : Number(event.target.value))} className="h-11 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-sm"><option value="ALL">All groups</option>{filteredGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
+                        </div>
 
-                            <Button
-                                variant="outline"
-                                onClick={handlePublish}
-                                disabled={publishing || timetable.status === "PUBLISHED"}
-                            >
-                                {publishing ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Send className="h-4 w-4" />
-                                )}
-                                Publish
-                            </Button>
+                        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                            <div className="flex flex-wrap gap-2">
+                                <Button variant="outline" onClick={() => setShowGenerateModal(true)} disabled={actionLoading}><Play className="h-4 w-4" />Generate</Button>
+                                <Button variant="outline" onClick={handlePublish} disabled={actionLoading || timetable.status === "PUBLISHED"}>{publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}Publish</Button>
+                                <Button variant="outline" onClick={() => setShowExportModal(true)}><FileDown className="h-4 w-4" />Export</Button>
+                                <Button variant="outline" onClick={() => setAssignmentsDrawerOpen(true)}><ClipboardList className="h-4 w-4" />Assignments <Badge variant="secondary">{assignments.length}</Badge></Button>
+                                <Button variant="destructive" onClick={() => requestDelete({ type: "timetable", entityName: timetable.name })}><Trash2 className="h-4 w-4" />Delete</Button>
+                            </div>
 
-                            <Button variant="outline" onClick={() => setShowExportModal(true)}>
-                                <FileDown className="h-4 w-4" />
-                                Export
-                            </Button>
-
-                            <Button variant="destructive" onClick={handleDelete}>
-                                <Trash2 className="h-4 w-4" />
-                                Delete
-                            </Button>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm text-muted-foreground">View:</span>
+                                {(["compact", "medium", "large"] as GridDensity[]).map((item) => <Button key={item} size="sm" variant={density === item ? "default" : "outline"} onClick={() => setDensity(item)}>{item}</Button>)}
+                                <div className="ml-1 flex items-center overflow-hidden rounded-lg border border-border bg-background shadow-sm">
+                                    <Button
+                                        type="button"
+                                        size="icon-sm"
+                                        variant="ghost"
+                                        aria-label="Zoom out"
+                                        disabled={gridZoom <= MIN_GRID_ZOOM}
+                                        onClick={() => updateGridZoom(-1)}
+                                    >
+                                        <Minus className="h-4 w-4" />
+                                    </Button>
+                                    {editingGridZoom ? (
+                                        <input
+                                            autoFocus
+                                            type="number"
+                                            min={MIN_GRID_ZOOM}
+                                            max={MAX_GRID_ZOOM}
+                                            value={gridZoomDraft}
+                                            onChange={(event) => setGridZoomDraft(event.target.value)}
+                                            onBlur={commitGridZoomDraft}
+                                            onKeyDown={(event) => {
+                                                if (event.key === "Enter") commitGridZoomDraft();
+                                                if (event.key === "Escape") setEditingGridZoom(false);
+                                            }}
+                                            className="h-7 w-16 border-x border-border bg-background px-2 text-center text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                            aria-label="Zoom percent"
+                                        />
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            className="h-7 min-w-14 border-x border-border px-2 text-center text-xs font-medium text-muted-foreground hover:bg-muted"
+                                            onClick={() => setGridZoom(100)}
+                                            onDoubleClick={() => {
+                                                setGridZoomDraft(String(gridZoom));
+                                                setEditingGridZoom(true);
+                                            }}
+                                            aria-label="Reset or edit zoom"
+                                        >
+                                            {gridZoom}%
+                                        </button>
+                                    )}
+                                    <Button
+                                        type="button"
+                                        size="icon-sm"
+                                        variant="ghost"
+                                        aria-label="Zoom in"
+                                        disabled={gridZoom >= MAX_GRID_ZOOM}
+                                        onClick={() => updateGridZoom(1)}
+                                    >
+                                        <Plus className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                                <Button size="sm" variant="outline" onClick={() => { setEditingTimeSlot(null); setTimeSlotModalOpen(true); }}><Settings2 className="h-4 w-4" />Time slot</Button>
+                            </div>
                         </div>
                     </div>
                 </CardHeader>
 
-                <CardContent>
-                    <div className="mb-4">
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            onClick={() => setShowAssignments((current) => !current)}
-                        >
-                            <ClipboardList className="h-4 w-4" />
-                            Assignments ({assignments.length})
-                        </Button>
-
-                        {showAssignments && (
-                            <div className="custom-scrollbar mt-3 max-h-64 overflow-y-auto rounded-2xl border border-border">
-                                {assignments.length === 0 ? (
-                                    <div className="p-4 text-sm text-muted-foreground">
-                                        No assignments yet.
-                                    </div>
-                                ) : (
-                                    assignments.map((assignment) => (
-                                        <div
-                                            key={assignment.id}
-                                            className="flex flex-col gap-3 border-b border-border p-4 last:border-b-0 md:flex-row md:items-center md:justify-between"
-                                        >
-                                            <div>
-                                                <div className="font-medium">
-                                                    {assignment.subjectName}
-                                                </div>
-                                                <div className="mt-1 text-sm text-muted-foreground">
-                                                    {assignment.teacherName} ·{" "}
-                                                    {assignment.groupNames.join(", ")}
-                                                </div>
-                                            </div>
-
-                                            <div className="flex items-center gap-2">
-                                                <Badge
-                                                    variant={
-                                                        getPlacementVariant(
-                                                            assignment.placementStatus,
-                                                        ) as any
-                                                    }
-                                                >
-                                                    {assignment.placementStatus}
-                                                </Badge>
-
-                                                {assignment.requiresManualInput && (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() =>
-                                                            openManualModal(
-                                                                assignment.id,
-                                                            )
-                                                        }
-                                                    >
-                                                        Place manually
-                                                    </Button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="h-[620px] min-h-0">
-                        <TimetableGrid
-                            lessons={filteredLessons}
-                            groups={filteredGroups}
-                            selectedDay={selectedDay}
-                            timeSlots={timeSlots}
-                            onCellClick={handleCellClick}
-                            onLessonClick={handleLessonClick}
-                        />
-                    </div>
-                </CardContent>
+                {mainTab === "schedule" && (
+                    <CardContent>
+                        <div className="h-[680px] min-h-0">
+                            <TimetableGrid
+                                lessons={filteredLessons}
+                                groups={filteredGroups}
+                                selectedDay={selectedDay}
+                                timeSlots={timeSlots}
+                                lunchBlocks={filteredLunches}
+                                density={density}
+                                zoom={gridZoom / 100}
+                                onCellClick={handleCellClick}
+                                onLessonClick={handleLessonClick}
+                                onLessonEdit={(lesson) => {
+                                    setEditingLesson(lesson);
+                                    setLessonInitialValues({ roomId: findLessonRoomId(lesson, rooms) });
+                                    setLessonFormOpen(true);
+                                }}
+                                onLessonDelete={(lesson) => requestDelete({ type: "lesson", entityName: lesson.subjectName, lesson })}
+                                onTimeSlotDoubleClick={(slot) => { setEditingTimeSlot(slot); setTimeSlotModalOpen(true); }}
+                            />
+                        </div>
+                    </CardContent>
+                )}
             </Card>
 
-            {showAssignmentForm && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-                    <div className="glass-card custom-scrollbar max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-card p-6 shadow-2xl">
-                        <div className="mb-6 flex items-start justify-between gap-4">
-                            <div>
-                                <h3 className="text-lg font-semibold">
-                                    New Assignment
-                                </h3>
-                                <p className="mt-1 text-sm text-muted-foreground">
-                                    Add subject, teacher, groups and scheduling constraints.
-                                </p>
-                            </div>
-
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setShowAssignmentForm(false)}
-                                aria-label="Close assignment form"
-                            >
-                                ✕
-                            </Button>
-                        </div>
-
-                        <AssignmentForm
-                            subjects={subjects}
-                            teachers={teachers}
-                            groups={groups}
-                            rooms={rooms}
-                            timeSlots={timeSlots}
-                            onSave={handleSaveAssignment}
-                            onCancel={() => setShowAssignmentForm(false)}
-                        />
-                    </div>
-                </div>
+            {mainTab === "diagnostics" && (
+                <DiagnosticsPanel
+                    assignments={assignments}
+                    generationResult={generationResult}
+                    onManualPlace={openManualModal}
+                    onEditAssignment={(assignment) => { setEditingAssignment(assignment); setShowAssignmentForm(true); }}
+                />
             )}
 
-            <GenerateOptionsModal
-                isOpen={showGenerateModal}
-                onClose={() => setShowGenerateModal(false)}
-                onGenerate={handleGenerate}
-                timetableName={timetable.name}
-                loading={generating}
+            {mainTab === "settings" && (
+                <LunchSettingsPanel
+                    timetableId={timetableId}
+                    lunches={lunches}
+                    groups={filteredGroups.length > 0 ? filteredGroups : groups}
+                    saving={actionLoading}
+                    onCreate={handleCreateLunch}
+                    onDelete={(lunch) => requestDelete({ type: "lunch", entityName: `Lunch ${formatTime(lunch.startTime)}-${formatTime(lunch.endTime)}`, lunch })}
+                />
+            )}
+
+            <AssignmentsDrawer
+                open={assignmentsDrawerOpen}
+                assignments={assignments}
+                onClose={() => setAssignmentsDrawerOpen(false)}
+                onCreateAssignment={() => { setEditingAssignment(null); setShowAssignmentForm(true); }}
+                onEditAssignment={(assignment) => { setEditingAssignment(assignment); setShowAssignmentForm(true); }}
+                onDeleteAssignment={(assignment) => requestDelete({ type: "assignment", entityName: assignment.subjectName, assignment })}
+                onManualPlace={(assignment) => openManualModal(assignment.id)}
             />
 
-            <ExportModal
-                isOpen={showExportModal}
-                onClose={() => setShowExportModal(false)}
-                onExport={handleExport}
-                timetableName={timetable.name}
-            />
+            <Dialog open={showAssignmentForm} onOpenChange={(open) => { if (!open) { setShowAssignmentForm(false); setEditingAssignment(null); } }}>
+                <DialogContent className="custom-scrollbar max-h-[90vh] max-w-2xl overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>{editingAssignment ? "Edit Assignment" : "New Assignment"}</DialogTitle>
+                        </DialogHeader>
+                    <AssignmentForm
+                        initialAssignment={editingAssignment}
+                        subjects={subjects}
+                        teachers={teachers}
+                        groups={groups}
+                        rooms={rooms}
+                        timeSlots={timeSlots}
+                        saving={actionLoading}
+                        onSave={handleSaveAssignment}
+                        onCancel={() => { setShowAssignmentForm(false); setEditingAssignment(null); }}
+                    />
+                </DialogContent>
+            </Dialog>
+
+            <GenerateOptionsModal isOpen={showGenerateModal} onClose={() => setShowGenerateModal(false)} onGenerate={handleGenerate} timetableName={timetable.name} loading={Boolean(generatingMode)} loadingMode={generatingMode} />
+            <ExportModal isOpen={showExportModal} onClose={() => setShowExportModal(false)} onExport={handleExport} timetableName={timetable.name} />
 
             {generationResult && (
-                <GenerationResultModal
-                    result={generationResult}
-                    onClose={() => setGenerationResult(null)}
-                    onManualPlace={(assignmentId) => {
-                        setGenerationResult(null);
-                        openManualModal(assignmentId);
-                    }}
-                />
+                <GenerationResultModal result={generationResult} onClose={() => setGenerationResult(null)} onManualPlace={(assignmentId) => { setGenerationResult(null); openManualModal(assignmentId); }} />
             )}
 
-            {manualAssignmentId && (
-                <ManualPlacementModal
-                    assignmentId={manualAssignmentId}
-                    rooms={rooms}
-                    onPlace={handleManualPlace}
-                    onClose={closeManualModal}
-                />
-            )}
+            {manualAssignmentId && <ManualPlacementModal assignmentId={manualAssignmentId} rooms={rooms} onPlace={handleManualPlace} onClose={closeManualModal} />}
+
+            <LessonDetailsModal
+                open={lessonDetailsOpen}
+                lesson={selectedLesson}
+                onClose={() => setLessonDetailsOpen(false)}
+                onEdit={(lesson) => {
+                    setLessonDetailsOpen(false);
+                    setEditingLesson(lesson);
+                    setLessonInitialValues({ roomId: findLessonRoomId(lesson, rooms) });
+                    setLessonFormOpen(true);
+                }}
+                onDelete={(lesson) => {
+                    setLessonDetailsOpen(false);
+                    requestDelete({ type: "lesson", entityName: lesson.subjectName, lesson });
+                }}
+            />
+
+            <LessonFormModal
+                open={lessonFormOpen}
+                title={editingLesson ? "Edit Lesson" : "New Lesson"}
+                assignments={assignments}
+                rooms={rooms}
+                timeSlots={timeSlots}
+                existingLessons={lessons}
+                initialValues={lessonInitialValues}
+                lesson={editingLesson}
+                saving={actionLoading}
+                onClose={() => { setLessonFormOpen(false); setEditingLesson(null); setLessonInitialValues(undefined); }}
+                onSave={handleSaveLesson}
+                onDeleteConflictingLesson={(conflict) => {
+                    setLessonFormOpen(false);
+                    requestDelete({ type: "lesson", entityName: conflict.subjectName, lesson: conflict });
+                }}
+            />
+
+            <TimeSlotFormModal
+                open={timeSlotModalOpen}
+                slot={editingTimeSlot}
+                saving={actionLoading}
+                onClose={() => { setTimeSlotModalOpen(false); setEditingTimeSlot(null); }}
+                existingSlots={timeSlots}
+                onSave={handleSaveTimeSlot}
+            />
+
+            <DeleteModeDialog
+                open={Boolean(deleteTarget)}
+                title={deleteTarget?.type === "timetable" ? "Delete timetable?" : deleteTarget?.type === "assignment" ? "Delete assignment?" : deleteTarget?.type === "lunch" ? "Delete lunch block?" : "Delete lesson?"}
+                description={deleteTarget?.type === "timetable" ? "This will delete the timetable and related schedule data." : "This action removes the selected item."}
+                entityName={deleteTarget?.entityName}
+                selectedMode={deleteMode}
+                loading={actionLoading}
+                showModeSelector={deleteTarget?.type === "timetable"}
+                onModeChange={setDeleteMode}
+                onCancel={() => setDeleteTarget(null)}
+                onConfirm={handleConfirmDelete}
+            />
         </AppShell>
     );
 }

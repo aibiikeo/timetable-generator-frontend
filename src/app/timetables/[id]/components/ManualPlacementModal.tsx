@@ -1,9 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarClock, X } from "lucide-react";
+import { CalendarClock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type {
     DayOfWeek,
@@ -83,33 +90,20 @@ export default function ManualPlacementModal({
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-            <div className="glass-card w-full max-w-lg rounded-2xl bg-card p-6 shadow-2xl">
-                <div className="mb-6 flex items-start justify-between gap-4">
+        <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
+            <DialogContent className="max-w-lg">
+                <DialogHeader>
                     <div>
                         <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
                             <CalendarClock className="h-5 w-5" />
                         </div>
 
-                        <h3 className="text-lg font-semibold">
-                            Manual Placement
-                        </h3>
+                        <DialogTitle>Manual Placement</DialogTitle>
                         <p className="mt-1 text-sm text-muted-foreground">
-                            Place assignment #{assignmentId} into a specific day, time and room.
+                            Assignment #{assignmentId}
                         </p>
                     </div>
-
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={onClose}
-                        disabled={saving}
-                        aria-label="Close modal"
-                    >
-                        <X className="h-4 w-4" />
-                    </Button>
-                </div>
+                </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
@@ -183,7 +177,7 @@ export default function ManualPlacementModal({
 
                             {rooms.map((room) => (
                                 <option key={room.id} value={room.id}>
-                                    {room.name} — {room.type}, {room.capacity} seats
+                                    {room.name} - {room.type}, {room.capacity} seats
                                 </option>
                             ))}
                         </select>
@@ -195,7 +189,7 @@ export default function ManualPlacementModal({
                         </div>
                     )}
 
-                    <div className="flex justify-end gap-3 pt-2">
+                    <DialogFooter>
                         <Button
                             type="button"
                             variant="outline"
@@ -208,9 +202,9 @@ export default function ManualPlacementModal({
                         <Button type="submit" disabled={saving}>
                             {saving ? "Placing..." : "Place lesson"}
                         </Button>
-                    </div>
+                    </DialogFooter>
                 </form>
-            </div>
-        </div>
+            </DialogContent>
+        </Dialog>
     );
 }

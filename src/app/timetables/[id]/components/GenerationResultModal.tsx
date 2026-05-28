@@ -4,11 +4,17 @@ import {
     AlertTriangle,
     CheckCircle2,
     ClipboardList,
-    X,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import type { GenerationResponse } from "@/lib/types";
 
 interface GenerationResultModalProps {
@@ -64,28 +70,18 @@ export default function GenerationResultModal({
             : 0;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-            <div className="glass-card custom-scrollbar max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-card p-6 shadow-2xl">
-                <div className="mb-6 flex items-start justify-between gap-4">
+        <Dialog open onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="custom-scrollbar max-h-[90vh] max-w-2xl overflow-y-auto">
+                <DialogHeader>
                     <div>
-                        <h3 className="text-lg font-semibold">
+                        <DialogTitle>
                             Generation Result
-                        </h3>
+                        </DialogTitle>
                         <p className="mt-1 text-sm text-muted-foreground">
                             Review generated lessons and assignments that need manual placement.
                         </p>
                     </div>
-
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={onClose}
-                        aria-label="Close modal"
-                    >
-                        <X className="h-4 w-4" />
-                    </Button>
-                </div>
+                </DialogHeader>
 
                 <section className="grid gap-4 sm:grid-cols-3">
                     <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
@@ -181,7 +177,7 @@ export default function GenerationResultModal({
                                             <div className="mt-1 text-sm text-muted-foreground">
                                                 {item.teacherName || "No teacher info"}
                                                 {item.groupNames?.length
-                                                    ? ` · ${item.groupNames.join(", ")}`
+                                                    ? ` - ${item.groupNames.join(", ")}`
                                                     : ""}
                                             </div>
 
@@ -208,12 +204,12 @@ export default function GenerationResultModal({
                     )}
                 </section>
 
-                <div className="mt-6 flex justify-end">
+                <DialogFooter>
                     <Button type="button" onClick={onClose}>
                         Done
                     </Button>
-                </div>
-            </div>
-        </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }

@@ -2,16 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import {
-    CalendarDays,
-    Eye,
-    FileDown,
-    Loader2,
-    Play,
-    Plus,
-    Search,
-    Trash2,
-} from "lucide-react";
+import { Eye, Plus, Search, Trash2 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -21,16 +12,14 @@ import {
     Card,
     CardContent,
     CardHeader,
-    CardTitle,
 } from "@/components/ui/card";
+import { DeleteModeDialog } from "@/components/ui/delete-mode-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import ExportModal from "@/app/timetables/[id]/components/ExportModal";
-import GenerateOptionsModal from "@/app/timetables/[id]/components/GenerateOptionsModal";
 import { timetableApi } from "@/lib";
 import type {
-    GenerationMode,
+    DeleteMode,
     Semester,
     TimetableResponse,
     TimetableStatus,
@@ -90,6 +79,10 @@ function getApiErrorMessage(error: unknown, fallback: string) {
     return fallback;
 }
 
+function getDisplayTimetableName(name: string) {
+    return name.replace(/\s+v\d+$/i, "").trim();
+}
+
 export default function TimetablesPage() {
     const [timetables, setTimetables] = useState<TimetableResponse[]>([]);
     const [loading, setLoading] = useState(true);
@@ -102,15 +95,10 @@ export default function TimetablesPage() {
     const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-    const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
-    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-
-    const [selectedTimetable, setSelectedTimetable] =
-        useState<TimetableResponse | null>(null);
-
-    const [generatingId, setGeneratingId] = useState<number | null>(null);
     const [formData, setFormData] = useState<FormDataState>(EMPTY_FORM);
     const [formError, setFormError] = useState("");
+    const [deleteTarget, setDeleteTarget] = useState<TimetableResponse | "selected" | null>(null);
+    const [deleteMode, setDeleteMode] = useState<DeleteMode>("SIMPLE");
 
     useEffect(() => {
         void loadData(true);
@@ -155,19 +143,6 @@ export default function TimetablesPage() {
             );
         });
     }, [filteredTimetables, sortField, sortDirection]);
-
-    const generatedCount = useMemo(() => {
-        return timetables.filter(
-            (item) =>
-                item.status === "GENERATED" ||
-                item.status === "PARTIAL" ||
-                item.status === "PUBLISHED",
-        ).length;
-    }, [timetables]);
-
-    const publishedCount = useMemo(() => {
-        return timetables.filter((item) => item.status === "PUBLISHED").length;
-    }, [timetables]);
 
     const loadData = async (initial = false) => {
         try {
@@ -227,7 +202,7 @@ export default function TimetablesPage() {
                 {label}
                 {isActive && (
                     <span className="text-xs">
-                        {sortDirection === "asc" ? "↑" : "↓"}
+                        {sortDirection === "asc" ? "" : ""}
                     </span>
                 )}
             </button>
@@ -297,65 +272,38 @@ export default function TimetablesPage() {
         }
     };
 
-    const handleGenerateClick = (timetable: TimetableResponse) => {
-        setSelectedTimetable(timetable);
-        setIsGenerateModalOpen(true);
-    };
-
-    const handleGenerate = async (mode: GenerationMode) => {
-        if (!selectedTimetable) return;
-
-        try {
-            setGeneratingId(selectedTimetable.id);
-            setError("");
-
-            const result = await timetableApi.generateTimetable(
-                selectedTimetable.id,
-                mode,
-            );
-
-            setIsGenerateModalOpen(false);
-            setSelectedTimetable(null);
-
-            const failedText =
-                result.failedVerticesCount > 0
-                    ? ` Failed: ${result.failedVerticesCount}.`
-                    : "";
-
-            setError(
-                `Generated ${result.placedLessonsCount} lessons.${failedText}`,
-            );
-
-            await loadData();
-        } catch (err) {
-            setError(getApiErrorMessage(err, "Generation failed"));
-        } finally {
-            setGeneratingId(null);
-        }
-    };
-
-    const handlePublish = async (timetable: TimetableResponse) => {
-        if (timetable.status === "PUBLISHED") return;
-
-        if (!confirm(`Publish timetable "${timetable.name}"?`)) return;
-
-        try {
-            setError("");
-
-            await timetableApi.publishTimetable(timetable.id);
-            await loadData();
-        } catch (err) {
-            setError(getApiErrorMessage(err, "Failed to publish timetable"));
-        }
-    };
-
     const handleDelete = async (timetable: TimetableResponse) => {
-        if (!confirm(`Delete timetable "${timetable.name}"?`)) return;
+        setDeleteTarget(timetable);
+        setDeleteMode("SIMPLE");
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!deleteTarget) return;
 
         try {
             setError("");
 
-            await timetableApi.deleteTimetable(timetable.id);
+            if (deleteTarget === "selected") {
+                const results = await Promise.allSettled(
+                    selectedTimetables.map((id) =>
+                        timetableApi.deleteTimetable(id, deleteMode),
+                    ),
+                );
+
+                const failed = results.filter(
+                    (result) => result.status === "rejected",
+                );
+
+                if (failed.length > 0) {
+                    setError(`${failed.length} timetable(s) could not be deleted`);
+                }
+
+                setSelectedTimetables([]);
+            } else {
+                await timetableApi.deleteTimetable(deleteTarget.id, deleteMode);
+            }
+
+            setDeleteTarget(null);
             await loadData();
         } catch (err) {
             setError(getApiErrorMessage(err, "Failed to delete timetable"));
@@ -365,50 +313,8 @@ export default function TimetablesPage() {
     const handleDeleteSelected = async () => {
         if (selectedTimetables.length === 0) return;
 
-        if (!confirm(`Delete ${selectedTimetables.length} selected timetables?`)) {
-            return;
-        }
-
-        try {
-            setError("");
-
-            const results = await Promise.allSettled(
-                selectedTimetables.map((id) =>
-                    timetableApi.deleteTimetable(id),
-                ),
-            );
-
-            const failed = results.filter(
-                (result) => result.status === "rejected",
-            );
-
-            if (failed.length > 0) {
-                setError(`${failed.length} timetable(s) could not be deleted`);
-            }
-
-            setSelectedTimetables([]);
-
-            await loadData();
-        } catch {
-            setError("Unexpected error while deleting timetables");
-        }
-    };
-
-    const handleExportClick = (timetable: TimetableResponse) => {
-        setSelectedTimetable(timetable);
-        setIsExportModalOpen(true);
-    };
-
-    const handleExport = async (format: "pdf" | "excel") => {
-        if (!selectedTimetable) return;
-
-        setIsExportModalOpen(false);
-
-        alert(
-            `Open "${selectedTimetable.name}" and export ${format.toUpperCase()} from the timetable detail page.`,
-        );
-
-        setSelectedTimetable(null);
+        setDeleteTarget("selected");
+        setDeleteMode("SIMPLE");
     };
 
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -445,7 +351,6 @@ export default function TimetablesPage() {
             <PageHeader
                 eyebrow="Scheduling"
                 title="Timetables"
-                description="Create, generate, publish and review timetable versions."
                 actions={
                     <Button onClick={openCreateModal}>
                         <Plus className="h-4 w-4" />
@@ -467,59 +372,6 @@ export default function TimetablesPage() {
                     </CardContent>
                 </Card>
             )}
-
-            <section className="grid gap-4 md:grid-cols-3">
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Timetables
-                        </CardTitle>
-                        <CalendarDays className="h-4 w-4 text-blue-700" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">
-                            {timetables.length}
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Total timetable versions
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Generated
-                        </CardTitle>
-                        <Badge variant="info">Ready</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">
-                            {generatedCount}
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Generated, partial or published
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">
-                            Published
-                        </CardTitle>
-                        <Badge variant="success">Live</Badge>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-3xl font-bold">
-                            {publishedCount}
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Visible as official timetable
-                        </p>
-                    </CardContent>
-                </Card>
-            </section>
 
             <Card className="glass-card mt-6">
                 <CardHeader>
@@ -567,7 +419,7 @@ export default function TimetablesPage() {
                         />
                     ) : (
                         <div className="custom-scrollbar overflow-x-auto">
-                            <table className="w-full min-w-[1150px] text-sm">
+                            <table className="w-full min-w-[920px] text-sm">
                                 <thead>
                                 <tr className="border-b text-left">
                                     <th className="w-12 py-3">
@@ -594,9 +446,6 @@ export default function TimetablesPage() {
                                     <th className="py-3">Semester</th>
                                     <th className="py-3">
                                         {getSortLabel("status", "Status")}
-                                    </th>
-                                    <th className="py-3 text-center">
-                                        Lessons
                                     </th>
                                     <th className="py-3">
                                         {getSortLabel(
@@ -633,16 +482,12 @@ export default function TimetablesPage() {
 
                                         <td className="py-4">
                                             <div className="font-medium">
-                                                {timetable.name}
-                                            </div>
-                                            <div className="text-xs text-muted-foreground">
-                                                ID: {timetable.id} · version{" "}
-                                                {timetable.version}
+                                                {getDisplayTimetableName(timetable.name)}
                                             </div>
                                         </td>
 
                                         <td className="py-4">
-                                            {timetable.academicYearStart}–
+                                            {timetable.academicYearStart}-
                                             {timetable.academicYearEnd}
                                         </td>
 
@@ -664,11 +509,6 @@ export default function TimetablesPage() {
                                             </Badge>
                                         </td>
 
-                                        <td className="py-4 text-center">
-                                            {timetable.totalLessons}/
-                                            {timetable.totalRequiredLessons}
-                                        </td>
-
                                         <td className="py-4">
                                             {new Date(
                                                 timetable.createdAt,
@@ -688,58 +528,6 @@ export default function TimetablesPage() {
                                                     >
                                                         <Eye className="h-4 w-4" />
                                                     </Link>
-                                                </Button>
-
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon-sm"
-                                                    onClick={() =>
-                                                        handleGenerateClick(
-                                                            timetable,
-                                                        )
-                                                    }
-                                                    disabled={
-                                                        generatingId ===
-                                                        timetable.id
-                                                    }
-                                                    aria-label="Generate timetable"
-                                                >
-                                                    {generatingId ===
-                                                    timetable.id ? (
-                                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                                    ) : (
-                                                        <Play className="h-4 w-4" />
-                                                    )}
-                                                </Button>
-
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon-sm"
-                                                    onClick={() =>
-                                                        handlePublish(
-                                                            timetable,
-                                                        )
-                                                    }
-                                                    disabled={
-                                                        timetable.status ===
-                                                        "PUBLISHED"
-                                                    }
-                                                    aria-label="Publish timetable"
-                                                >
-                                                    ✓
-                                                </Button>
-
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon-sm"
-                                                    onClick={() =>
-                                                        handleExportClick(
-                                                            timetable,
-                                                        )
-                                                    }
-                                                    aria-label="Export timetable"
-                                                >
-                                                    <FileDown className="h-4 w-4" />
                                                 </Button>
 
                                                 <Button
@@ -776,30 +564,20 @@ export default function TimetablesPage() {
                 />
             )}
 
-            {isGenerateModalOpen && selectedTimetable && (
-                <GenerateOptionsModal
-                    isOpen={isGenerateModalOpen}
-                    timetableName={selectedTimetable.name}
-                    onClose={() => {
-                        setIsGenerateModalOpen(false);
-                        setSelectedTimetable(null);
-                    }}
-                    onGenerate={handleGenerate}
-                    loading={generatingId === selectedTimetable.id}
-                />
-            )}
-
-            {isExportModalOpen && selectedTimetable && (
-                <ExportModal
-                    isOpen={isExportModalOpen}
-                    timetableName={selectedTimetable.name}
-                    onClose={() => {
-                        setIsExportModalOpen(false);
-                        setSelectedTimetable(null);
-                    }}
-                    onExport={handleExport}
-                />
-            )}
+            <DeleteModeDialog
+                open={Boolean(deleteTarget)}
+                title="Delete timetable?"
+                description="This will delete the timetable and related schedule data."
+                entityName={
+                    deleteTarget === "selected"
+                        ? `${selectedTimetables.length} selected timetables`
+                        : deleteTarget?.name
+                }
+                selectedMode={deleteMode}
+                onModeChange={setDeleteMode}
+                onCancel={() => setDeleteTarget(null)}
+                onConfirm={handleConfirmDelete}
+            />
         </AppShell>
     );
 }
@@ -839,7 +617,7 @@ function TimetableModal({
                         onClick={onClose}
                         aria-label="Close modal"
                     >
-                        ✕
+                        X
                     </Button>
                 </div>
 

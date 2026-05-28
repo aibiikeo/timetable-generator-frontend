@@ -1,51 +1,47 @@
 "use client";
 
-import { Loader2, Play, PlusCircle, RefreshCcw, X } from "lucide-react";
+import type { ReactNode } from "react";
+import { Loader2, PlusCircle, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { GenerationMode } from "@/lib/types";
 
 interface GenerateOptionsModalProps {
     isOpen: boolean;
     timetableName: string;
     loading?: boolean;
+    loadingMode?: GenerationMode | null;
     onClose: () => void;
     onGenerate: (mode: GenerationMode) => void;
 }
 
 export default function GenerateOptionsModal({
-                                                 isOpen,
-                                                 timetableName,
-                                                 loading = false,
-                                                 onClose,
-                                                 onGenerate,
-                                             }: GenerateOptionsModalProps) {
-    if (!isOpen) return null;
+    isOpen,
+    loading = false,
+    loadingMode = null,
+    onClose,
+    onGenerate,
+}: GenerateOptionsModalProps) {
+    const renderIcon = (mode: GenerationMode, fallback: ReactNode) => {
+        if (loading && loadingMode === mode) {
+            return <Loader2 className="h-5 w-5 animate-spin" />;
+        }
+        return fallback;
+    };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-            <div className="glass-card w-full max-w-lg rounded-2xl bg-card p-6 shadow-2xl">
-                <div className="mb-6 flex items-start justify-between gap-4">
-                    <div>
-                        <h3 className="text-lg font-semibold">
-                            Generate Timetable
-                        </h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Choose how to generate lessons for “{timetableName}”.
-                        </p>
-                    </div>
-
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={onClose}
-                        disabled={loading}
-                        aria-label="Close modal"
-                    >
-                        <X className="h-4 w-4" />
-                    </Button>
-                </div>
+        <Dialog open={isOpen} onOpenChange={(open) => !open && !loading && onClose()}>
+            <DialogContent className="max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Generate Timetable</DialogTitle>
+                </DialogHeader>
 
                 <div className="space-y-3">
                     <button
@@ -56,20 +52,10 @@ export default function GenerateOptionsModal({
                     >
                         <div className="flex items-start gap-3">
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
-                                {loading ? (
-                                    <Loader2 className="h-5 w-5 animate-spin" />
-                                ) : (
-                                    <RefreshCcw className="h-5 w-5" />
-                                )}
+                                {renderIcon("NEW", <Sparkles className="h-5 w-5" />)}
                             </div>
-
                             <div>
-                                <div className="font-medium">
-                                    Generate from scratch
-                                </div>
-                                <p className="mt-1 text-sm text-muted-foreground">
-                                    Clear generated lessons and create a new schedule.
-                                </p>
+                                <div className="font-medium">Full generation</div>
                             </div>
                         </div>
                     </button>
@@ -81,50 +67,22 @@ export default function GenerateOptionsModal({
                         className="w-full rounded-2xl border border-border bg-card p-4 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                     >
                         <div className="flex items-start gap-3">
-                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
-                                {loading ? (
-                                    <Loader2 className="h-5 w-5 animate-spin" />
-                                ) : (
-                                    <PlusCircle className="h-5 w-5" />
-                                )}
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-green-50 text-green-700">
+                                {renderIcon("APPEND", <PlusCircle className="h-5 w-5" />)}
                             </div>
-
                             <div>
-                                <div className="font-medium">
-                                    Append missing lessons
-                                </div>
-                                <p className="mt-1 text-sm text-muted-foreground">
-                                    Keep existing lessons and place only missing ones.
-                                </p>
+                                <div className="font-medium">Partial generation</div>
                             </div>
                         </div>
                     </button>
                 </div>
 
-                <div className="mt-6 flex justify-end gap-3">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        onClick={onClose}
-                        disabled={loading}
-                    >
+                <DialogFooter>
+                    <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
                         Cancel
                     </Button>
-
-                    <Button
-                        type="button"
-                        disabled={loading}
-                        onClick={() => onGenerate("NEW")}
-                    >
-                        {loading ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                            <Play className="h-4 w-4" />
-                        )}
-                        Generate
-                    </Button>
-                </div>
-            </div>
-        </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }

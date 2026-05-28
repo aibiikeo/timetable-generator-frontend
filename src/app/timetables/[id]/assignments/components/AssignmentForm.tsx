@@ -158,27 +158,9 @@ export default function AssignmentForm({
 
     const [error, setError] = useState("");
 
-    const selectedSubject = useMemo(() => {
-        return subjects.find((subject) => subject.id === formData.subjectId);
-    }, [subjects, formData.subjectId]);
-
     const orderedGroups = useMemo(() => {
-        if (!selectedSubject?.majorId) {
-            return [...groups].sort((a, b) => a.name.localeCompare(b.name));
-        }
-
-        const subjectMajorId = selectedSubject.majorId;
-
-        return [...groups].sort((a, b) => {
-            const aMatches = a.majorId === subjectMajorId;
-            const bMatches = b.majorId === subjectMajorId;
-
-            if (aMatches && !bMatches) return -1;
-            if (!aMatches && bMatches) return 1;
-
-            return a.name.localeCompare(b.name);
-        });
-    }, [groups, selectedSubject]);
+        return [...groups].sort((a, b) => a.name.localeCompare(b.name));
+    }, [groups]);
 
     const selectedGroupsCount = formData.groupIds.length;
     const allGroupsSelected =
@@ -257,9 +239,7 @@ export default function AssignmentForm({
         }
 
         if (!Number.isFinite(lessonPartHours) || lessonPartHours < 2) {
-            setError(
-                "Generated lessons must take at least 2 slots. Use manual placement if you need 1 slot.",
-            );
+            setError("Lesson duration must be at least 2 slots");
             return false;
         }
 
@@ -375,16 +355,12 @@ export default function AssignmentForm({
 
                     {subjects.map((subject) => (
                         <option key={subject.id} value={subject.id}>
-                            {subject.code} — {subject.name}
+                            {subject.code} - {subject.name}
                         </option>
                     ))}
                 </select>
 
-                {selectedSubject && (
-                    <p className="mt-1.5 text-xs text-muted-foreground">
-                        Major: {selectedSubject.majorName || "Unknown"}
-                    </p>
-                )}
+
             </div>
 
             <div>
@@ -417,9 +393,6 @@ export default function AssignmentForm({
                         </label>
                         <p className="mt-1 text-xs text-muted-foreground">
                             {selectedGroupsCount} selected
-                            {selectedSubject?.majorName
-                                ? ` · ${selectedSubject.majorName} groups are shown first`
-                                : ""}
                         </p>
                     </div>
 
@@ -443,18 +416,11 @@ export default function AssignmentForm({
                         <div className="grid gap-2 sm:grid-cols-2">
                             {orderedGroups.map((group) => {
                                 const checked = formData.groupIds.includes(group.id);
-                                const isRecommended =
-                                    Boolean(selectedSubject?.majorId) &&
-                                    group.majorId === selectedSubject?.majorId;
 
                                 return (
                                     <label
                                         key={group.id}
-                                        className={
-                                            isRecommended
-                                                ? "flex cursor-pointer items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm transition-colors hover:bg-blue-100"
-                                                : "flex cursor-pointer items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm transition-colors hover:bg-accent"
-                                        }
+                                        className="flex cursor-pointer items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm transition-colors hover:bg-accent"
                                     >
                                         <input
                                             type="checkbox"
@@ -466,19 +432,6 @@ export default function AssignmentForm({
                                         <span className="font-medium">
                                             {group.name}
                                         </span>
-
-                                        <span className="text-xs text-muted-foreground">
-                                            {group.studentCount}
-                                        </span>
-
-                                        {isRecommended && (
-                                            <Badge
-                                                variant="info"
-                                                className="ml-auto shrink-0"
-                                            >
-                                                Major
-                                            </Badge>
-                                        )}
                                     </label>
                                 );
                             })}
@@ -515,10 +468,6 @@ export default function AssignmentForm({
                         onChange={handleChange}
                         required
                     />
-
-                    <p className="mt-1.5 text-xs text-muted-foreground">
-                        Total generated slots per week.
-                    </p>
                 </div>
 
                 <div>
@@ -535,10 +484,6 @@ export default function AssignmentForm({
                         onChange={handleChange}
                         required
                     />
-
-                    <p className="mt-1.5 text-xs text-muted-foreground">
-                        Generated lessons use at least 2 slots.
-                    </p>
                 </div>
             </div>
 
@@ -594,7 +539,7 @@ export default function AssignmentForm({
 
                         {rooms.map((room) => (
                             <option key={room.id} value={room.id}>
-                                {room.name} — {room.type}, {room.capacity} seats
+                                {room.name} - {room.type}, {room.capacity} seats
                             </option>
                         ))}
                     </select>

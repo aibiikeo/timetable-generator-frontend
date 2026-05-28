@@ -253,7 +253,7 @@ export default function AssignmentsPage({
                 {label}
                 {isActive && (
                     <span className="text-xs">
-                        {sortDirection === "asc" ? "↑" : "↓"}
+                        {sortDirection === "asc" ? "" : ""}
                     </span>
                 )}
             </button>
@@ -601,9 +601,6 @@ export default function AssignmentsPage({
                                             <div className="font-medium">
                                                 {assignment.subjectName}
                                             </div>
-                                            <div className="text-xs text-muted-foreground">
-                                                ID: {assignment.id}
-                                            </div>
                                         </td>
 
                                         <td className="py-4">
@@ -711,7 +708,7 @@ export default function AssignmentsPage({
                                 disabled={saving}
                                 aria-label="Close assignment form"
                             >
-                                ✕
+                                X
                             </Button>
                         </div>
 
