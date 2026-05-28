@@ -28,7 +28,7 @@ export type DeleteMode = "SIMPLE" | "DETACH" | "WITH";
 
 export type GenerationMode = "NEW" | "APPEND";
 
-export type Degree = "BACHELOR" | "MASTER" | "SPECIALIST";
+export type Degree = "BACHELOR" | "MASTER" | "PHD " | "SPECIALIST";
 
 // ====================== AUTH ======================
 
@@ -332,6 +332,54 @@ export interface LessonResponse {
     departmentName: string;
     facultyId: number;
     facultyName: string;
+}
+
+// ====================== PUBLIC AIU TIMETABLE ======================
+
+export interface PublicFilterOptionResponse {
+    id: number;
+    name: string;
+}
+
+export interface PublicTimetableLessonResponse {
+    id: number;
+    timetableId: number;
+    timetableName: string;
+    dayOfWeek: DayOfWeek;
+    startTime: string;
+    endTime: string;
+    durationHours: number;
+    facultyId: number;
+    facultyName: string;
+    departmentId: number;
+    departmentName: string;
+    majorId: number;
+    majorName: string;
+    degree: Degree;
+    subjectId: number;
+    subjectName: string;
+    teacherId: number;
+    teacherName: string;
+    roomId: number | null;
+    roomName: string | null;
+    groups: PublicFilterOptionResponse[];
+}
+
+export interface PublicTimetableScheduleResponse {
+    timetable: TimetableResponse | null;
+    totalLessons: number;
+    lessons: PublicTimetableLessonResponse[];
+}
+
+export interface PublicTimetableQuery {
+    facultyId?: number;
+    departmentId?: number;
+    majorId?: number;
+    groupId?: number;
+    teacherId?: number;
+    subjectId?: number;
+    roomId?: number;
+    dayOfWeek?: DayOfWeek;
 }
 
 // ====================== GENERATION ======================

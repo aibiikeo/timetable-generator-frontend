@@ -7,9 +7,8 @@ import {
     TimetableResponse,
 } from "./types";
 
-function validateId(id: number, methodName: string): void {
+function validateId(id: number): void {
     if (Number.isNaN(id) || id <= 0) {
-        console.error(`[${methodName}] Invalid ID:`, id);
         throw new Error(`Invalid ID: ${id}`);
     }
 }
@@ -28,7 +27,7 @@ export const timetableApi = {
     },
 
     getTimetable: async (id: number): Promise<TimetableResponse> => {
-        validateId(id, "getTimetable");
+        validateId(id);
 
         const response = await apiClient.get<TimetableResponse>(
             `/api/timetables/${id}`,
@@ -50,7 +49,7 @@ export const timetableApi = {
         id: number,
         data: TimetableRequest,
     ): Promise<TimetableResponse> => {
-        validateId(id, "updateTimetable");
+        validateId(id);
 
         const response = await apiClient.put<TimetableResponse>(
             `/api/timetables/${id}`,
@@ -60,7 +59,7 @@ export const timetableApi = {
     },
 
     publishTimetable: async (id: number): Promise<TimetableResponse> => {
-        validateId(id, "publishTimetable");
+        validateId(id);
 
         const response = await apiClient.post<TimetableResponse>(
             `/api/timetables/${id}/publish`,
@@ -72,7 +71,7 @@ export const timetableApi = {
         id: number,
         mode: DeleteMode = "SIMPLE",
     ): Promise<void> => {
-        validateId(id, "deleteTimetable");
+        validateId(id);
 
         await apiClient.delete(`/api/timetables/${id}?mode=${mode}`);
     },
@@ -81,7 +80,7 @@ export const timetableApi = {
         id: number,
         mode: GenerationMode = "NEW",
     ): Promise<GenerationResponse> => {
-        validateId(id, "generateTimetable");
+        validateId(id);
 
         const response = await apiClient.post<GenerationResponse>(
             `/api/generation/timetables/${id}/generate?mode=${mode}`,
@@ -99,10 +98,9 @@ export const timetableApi = {
             roomId: number;
         },
     ): Promise<boolean> => {
-        validateId(timetableId, "manualPlaceLesson");
+        validateId(timetableId);
 
         if (Number.isNaN(assignmentId) || assignmentId <= 0) {
-            console.error("[manualPlaceLesson] Invalid assignmentId:", assignmentId);
             throw new Error(`Invalid assignmentId: ${assignmentId}`);
         }
 

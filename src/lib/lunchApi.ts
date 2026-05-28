@@ -11,7 +11,7 @@ export const lunchApi = {
         timetableId: number,
     ): Promise<LunchResponse[]> => {
         const response = await apiClient.get<LunchResponse[]>(
-            `/api/lunches/timetable/${timetableId}`,
+            `/api/lunch/timetable/${timetableId}`,
         );
         return response.data;
     },
