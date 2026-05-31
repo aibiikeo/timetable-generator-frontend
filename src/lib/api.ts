@@ -25,6 +25,8 @@ export const apiClient = axios.create({
     timeout: 60000,
 });
 
+let refreshPromise: Promise<string> | null = null;
+
 const getAccessToken = () => {
     if (typeof window === "undefined") return null;
     return localStorage.getItem(ACCESS_TOKEN_KEY);
@@ -42,6 +44,8 @@ const setTokens = (accessToken: string, refreshToken?: string | null) => {
 
     if (refreshToken) {
         localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    } else if (refreshToken === null) {
+        localStorage.removeItem(REFRESH_TOKEN_KEY);
     }
 };
 
@@ -51,6 +55,29 @@ const clearTokens = () => {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem("userEmail");
+};
+
+const refreshAccessToken = async () => {
+    const refreshToken = getRefreshToken();
+
+    if (!refreshToken) {
+        throw new Error("No refresh token");
+    }
+
+    const response = await apiClient.post<AuthResponse>(
+        "/auth/refresh",
+        { refreshToken } satisfies RefreshTokenRequest,
+    );
+
+    const { access_token, refresh_token } = response.data;
+
+    if (!access_token) {
+        throw new Error("Invalid refresh response");
+    }
+
+    setTokens(access_token, refresh_token ?? refreshToken);
+
+    return access_token;
 };
 
 export function getApiErrorMessage(error: unknown, fallback = "Something went wrong") {
@@ -103,25 +130,13 @@ apiClient.interceptors.response.use(
             originalRequest._retry = true;
 
             try {
-                const refreshToken = getRefreshToken();
-
-                if (!refreshToken) {
-                    throw new Error("No refresh token");
+                if (!refreshPromise) {
+                    refreshPromise = refreshAccessToken().finally(() => {
+                        refreshPromise = null;
+                    });
                 }
 
-                const response = await apiClient.post<AuthResponse>(
-                    "/auth/refresh",
-                    { refreshToken } satisfies RefreshTokenRequest,
-                );
-
-                const { access_token, refresh_token } = response.data;
-
-                if (!access_token) {
-                    throw new Error("Invalid refresh response");
-                }
-
-                setTokens(access_token, refresh_token ?? refreshToken);
-
+                const access_token = await refreshPromise;
                 originalRequest.headers.Authorization = `Bearer ${access_token}`;
 
                 return apiClient(originalRequest);
