@@ -10,8 +10,11 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-    title: "Timetable Generator",
-    description: "Constraint-Based University Timetable Scheduling System",
+    title: "AIU Timetable Scheduling System",
+    description: "University timetable scheduling system",
+    icons: {
+        icon: "/logo_aiu.png",
+    },
 };
 
 export default function RootLayout({

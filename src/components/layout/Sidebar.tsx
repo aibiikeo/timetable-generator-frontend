@@ -46,12 +46,12 @@ export function Sidebar({ collapsed, onToggle, className }: SidebarProps) {
     return (
         <aside
             className={cn(
-                "hidden h-screen shrink-0 border-r border-sidebar-border bg-sidebar/95 backdrop-blur-xl transition-all duration-300 lg:fixed lg:left-0 lg:top-0 lg:flex lg:flex-col",
+                "z-50 hidden h-screen shrink-0 overflow-visible border-r border-sidebar-border bg-sidebar/95 backdrop-blur-xl transition-all duration-300 lg:fixed lg:left-0 lg:top-0 lg:flex lg:flex-col",
                 collapsed ? "w-20" : "w-72",
                 className,
             )}
         >
-            <div className="flex h-16 items-center border-b border-sidebar-border px-4">
+            <div className="relative flex h-16 items-center overflow-visible border-b border-sidebar-border px-4">
                 <Link
                     href="/home"
                     className={cn(
@@ -73,7 +73,7 @@ export function Sidebar({ collapsed, onToggle, className }: SidebarProps) {
                     {!collapsed && (
                         <div className="min-w-0">
                             <div className="truncate text-sm font-bold text-sidebar-foreground">
-                                Ala-Too Timetable
+                                AIU Timetable
                             </div>
                             <div className="truncate text-xs text-muted-foreground">
                                 Scheduling system
@@ -99,7 +99,7 @@ export function Sidebar({ collapsed, onToggle, className }: SidebarProps) {
                         variant="ghost"
                         size="icon-sm"
                         onClick={onToggle}
-                        className="absolute -right-4 top-5 h-8 w-8 rounded-full border border-border bg-card shadow-md"
+                        className="absolute -right-4 top-1/2 z-50 h-8 w-8 -translate-y-1/2 rounded-full border border-border bg-card shadow-md"
                         aria-label="Expand sidebar"
                     >
                         <ChevronRight className="h-4 w-4" />

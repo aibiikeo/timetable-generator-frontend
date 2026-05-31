@@ -64,7 +64,7 @@ export function MobileSidebar({ open, onClose }: MobileSidebarProps) {
 
                         <div className="min-w-0">
                             <div className="truncate text-sm font-bold text-sidebar-foreground">
-                                Ala-Too Timetable
+                                AIU Timetable
                             </div>
                             <div className="truncate text-xs text-muted-foreground">
                                 Scheduling system

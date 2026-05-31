@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+    CalendarDays,
     LogOut,
     Menu,
     Search,
-    ShieldCheck,
     UserCircle,
 } from "lucide-react";
 
@@ -90,38 +91,43 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                 />
             </div>
 
-            <div className="ml-auto flex items-center gap-3">
-                <div className="hidden items-center gap-3 rounded-2xl border border-border bg-card px-3 py-2 shadow-sm sm:flex">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-700">
-                        <UserCircle className="h-5 w-5" />
-                    </div>
+            <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
+                <Button variant="outline" size="sm" asChild className="hidden sm:inline-flex">
+                    <Link href="/aiu-timetable">
+                        <CalendarDays className="h-4 w-4" />
+                        Public schedule
+                    </Link>
+                </Button>
 
-                    <div className="min-w-0">
-                        <div className="max-w-[180px] truncate text-sm font-medium">
-                            {email || "Unknown user"}
-                        </div>
+                <Button variant="outline" size="icon-sm" asChild className="sm:hidden" aria-label="Public schedule">
+                    <Link href="/aiu-timetable">
+                        <CalendarDays className="h-4 w-4" />
+                    </Link>
+                </Button>
 
-                        <div className="mt-0.5 flex items-center gap-1.5">
-                            <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
+                <div className="hidden min-w-0 items-center gap-2 rounded-2xl border border-border bg-card px-3 py-2 shadow-sm sm:flex">
+                    <UserCircle className="h-5 w-5 shrink-0 text-blue-700" />
 
-                            {role ? (
-                                <Badge
-                                    variant={
-                                        role === "SUPER_ADMIN"
-                                            ? "warning"
-                                            : "secondary"
-                                    }
-                                    className="px-2 py-0 text-[10px]"
-                                >
-                                    {role}
-                                </Badge>
-                            ) : (
-                                <span className="text-xs text-muted-foreground">
-                                    Loading role...
-                                </span>
-                            )}
-                        </div>
-                    </div>
+                    <span className="max-w-[220px] truncate text-sm font-medium text-foreground">
+                        {email || "Unknown user"}
+                    </span>
+
+                    {role ? (
+                        <Badge
+                            variant={
+                                role === "SUPER_ADMIN"
+                                    ? "warning"
+                                    : "secondary"
+                            }
+                            className="shrink-0 px-2 py-0 text-xs"
+                        >
+                            {role}
+                        </Badge>
+                    ) : (
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                            Loading role...
+                        </span>
+                    )}
                 </div>
 
                 <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-border bg-card px-3 py-2 shadow-sm sm:hidden">
