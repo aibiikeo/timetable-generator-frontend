@@ -67,6 +67,15 @@ export const timetableApi = {
         return response.data;
     },
 
+    archiveTimetable: async (id: number): Promise<TimetableResponse> => {
+        validateId(id);
+
+        const response = await apiClient.post<TimetableResponse>(
+            `/api/timetables/${id}/archive`,
+        );
+        return response.data;
+    },
+
     deleteTimetable: async (
         id: number,
         mode: DeleteMode = "SIMPLE",
@@ -79,11 +88,29 @@ export const timetableApi = {
     generateTimetable: async (
         id: number,
         mode: GenerationMode = "NEW",
+        signal?: AbortSignal,
     ): Promise<GenerationResponse> => {
         validateId(id);
 
         const response = await apiClient.post<GenerationResponse>(
             `/api/generation/timetables/${id}/generate?mode=${mode}`,
+            undefined,
+            { signal },
+        );
+        return response.data;
+    },
+
+    retryFailedAssignments: async (
+        id: number,
+        manualSplittings: Record<number, string>,
+        signal?: AbortSignal,
+    ): Promise<GenerationResponse> => {
+        validateId(id);
+
+        const response = await apiClient.post<GenerationResponse>(
+            `/api/generation/timetables/${id}/retry-failed`,
+            manualSplittings,
+            { signal },
         );
         return response.data;
     },

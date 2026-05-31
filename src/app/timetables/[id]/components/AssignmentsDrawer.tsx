@@ -9,6 +9,9 @@ import {
     X,
     Plus,
     MapPin,
+    Loader2,
+    RotateCcw,
+    Square,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +33,10 @@ interface AssignmentsDrawerProps {
     onEditAssignment?: (assignment: AssignmentResponse) => void;
     onDeleteAssignment?: (assignment: AssignmentResponse) => void;
     onManualPlace?: (assignment: AssignmentResponse) => void;
+    initialFilter?: AssignmentFilter;
+    retrying?: boolean;
+    onRetryFailed?: (assignments: AssignmentResponse[]) => void;
+    onStopRetry?: () => void;
 }
 
 function normalizePlacementStatus(status?: string | null): AssignmentFilter {
@@ -56,7 +63,8 @@ function normalizePlacementStatus(status?: string | null): AssignmentFilter {
         normalized === "UNPLACED" ||
         normalized === "FAILED" ||
         normalized === "MANUAL_REQUIRED" ||
-        normalized === "UNSCHEDULED"
+        normalized === "UNSCHEDULED" ||
+        normalized === "PENDING"
     ) {
         return "UNPLACED";
     }
@@ -88,6 +96,10 @@ export default function AssignmentsDrawer({
                                               onEditAssignment,
                                               onDeleteAssignment,
                                               onManualPlace,
+                                              initialFilter = "ALL",
+                                              retrying = false,
+                                              onRetryFailed,
+                                              onStopRetry,
                                           }: AssignmentsDrawerProps) {
     const [searchQuery, setSearchQuery] = useState("");
     const [filter, setFilter] = useState<AssignmentFilter>("ALL");
@@ -112,8 +124,10 @@ export default function AssignmentsDrawer({
         if (!open) {
             setSearchQuery("");
             setFilter("ALL");
+        } else {
+            setFilter(initialFilter);
         }
-    }, [open]);
+    }, [initialFilter, open]);
 
     const summary = useMemo(() => {
         return assignments.reduce(
@@ -169,6 +183,22 @@ export default function AssignmentsDrawer({
             );
         });
     }, [assignments, filter, searchQuery]);
+
+    const retryAssignments = useMemo(() => {
+        if (filter === "PARTIAL" || filter === "UNPLACED") {
+            return filteredAssignments;
+        }
+
+        return assignments.filter((assignment) => {
+            const status = normalizePlacementStatus(assignment.placementStatus);
+            return status === "PARTIAL" || status === "UNPLACED";
+        });
+    }, [assignments, filter, filteredAssignments]);
+
+    const showRetryBar =
+        retryAssignments.length > 0 &&
+        Boolean(onRetryFailed) &&
+        (filter === "PARTIAL" || filter === "UNPLACED");
 
     if (!open) return null;
 
@@ -241,6 +271,31 @@ export default function AssignmentsDrawer({
                             ),
                         )}
                     </div>
+
+                    {showRetryBar && (
+                        <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <div className="text-sm font-medium text-amber-950">
+                                    {retryAssignments.length} {filter === "PARTIAL" ? "partial" : "unplaced"} assignment(s)
+                                </div>
+                                <p className="mt-0.5 text-xs text-amber-800">
+                                    Retry uses the current splitting and keeps placed lessons.
+                                </p>
+                            </div>
+
+                            {retrying ? (
+                                <Button type="button" size="sm" variant="outline" onClick={onStopRetry}>
+                                    <Square className="h-4 w-4" />
+                                    Stop
+                                </Button>
+                            ) : (
+                                <Button type="button" size="sm" onClick={() => onRetryFailed?.(retryAssignments)}>
+                                    <RotateCcw className="h-4 w-4" />
+                                    Retry failed
+                                </Button>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 <div className="custom-scrollbar flex-1 overflow-y-auto p-5">
@@ -258,6 +313,12 @@ export default function AssignmentsDrawer({
                         </div>
                     ) : (
                         <div className="space-y-3">
+                            {retrying && showRetryBar && (
+                                <div className="flex items-center gap-2 rounded-2xl border border-border bg-card p-3 text-sm text-muted-foreground">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Retrying failed assignments...
+                                </div>
+                            )}
                             {filteredAssignments.map((assignment) => {
                                 const status = normalizePlacementStatus(
                                     assignment.placementStatus,

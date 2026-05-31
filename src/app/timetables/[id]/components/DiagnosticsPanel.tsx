@@ -12,6 +12,7 @@ interface DiagnosticsPanelProps {
     generationResult?: GenerationResponse | null;
     onManualPlace: (assignmentId: number) => void;
     onEditAssignment: (assignment: AssignmentResponse) => void;
+    onReviewAssignments?: (filter: "PARTIAL" | "UNPLACED") => void;
 }
 
 function needsReview(assignment: AssignmentResponse) {
@@ -24,8 +25,11 @@ export default function DiagnosticsPanel({
                                              generationResult,
                                              onManualPlace,
                                              onEditAssignment,
+                                             onReviewAssignments,
                                          }: DiagnosticsPanelProps) {
     const reviewAssignments = assignments.filter(needsReview);
+    const partialCount = assignments.filter((assignment) => String(assignment.placementStatus || "").toUpperCase() === "PARTIAL").length;
+    const unplacedCount = reviewAssignments.length - partialCount;
     const failedCount = generationResult?.failedVerticesCount ?? reviewAssignments.length;
 
     return (
@@ -39,9 +43,21 @@ export default function DiagnosticsPanel({
                         </p>
                     </div>
 
-                    <Badge variant={failedCount > 0 ? "warning" : "success"}>
-                        {failedCount > 0 ? `${failedCount} need review` : "No issues"}
-                    </Badge>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={failedCount > 0 ? "warning" : "success"}>
+                            {failedCount > 0 ? `${failedCount} need review` : "No issues"}
+                        </Badge>
+                        {reviewAssignments.length > 0 && onReviewAssignments && (
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => onReviewAssignments(partialCount > 0 ? "PARTIAL" : "UNPLACED")}
+                            >
+                                Review assignments
+                            </Button>
+                        )}
+                    </div>
                 </div>
             </CardHeader>
 
@@ -55,6 +71,9 @@ export default function DiagnosticsPanel({
                     </div>
                 ) : (
                     <div className="space-y-3">
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                            {partialCount} partial and {Math.max(0, unplacedCount)} unplaced assignment(s) need attention.
+                        </div>
                         {reviewAssignments.map((assignment) => (
                             <div
                                 key={assignment.id}

@@ -4,6 +4,9 @@ import {
     AlertTriangle,
     CheckCircle2,
     ClipboardList,
+    Loader2,
+    RotateCcw,
+    Square,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -19,8 +22,11 @@ import type { GenerationResponse } from "@/lib/types";
 
 interface GenerationResultModalProps {
     result: GenerationResponse;
+    retrying?: boolean;
     onClose: () => void;
     onManualPlace: (assignmentId: number) => void;
+    onRetryFailed?: () => void;
+    onStopRetry?: () => void;
 }
 
 type FailedItem = {
@@ -52,8 +58,11 @@ function getFailedItems(result: GenerationResponse): FailedItem[] {
 
 export default function GenerationResultModal({
                                                   result,
+                                                  retrying = false,
                                                   onClose,
                                                   onManualPlace,
+                                                  onRetryFailed,
+                                                  onStopRetry,
                                               }: GenerationResultModalProps) {
     const failedItems = getFailedItems(result);
 
@@ -205,7 +214,21 @@ export default function GenerationResultModal({
                 </section>
 
                 <DialogFooter>
+                    {failedItems.length > 0 && onRetryFailed && (
+                        retrying ? (
+                            <Button type="button" variant="outline" onClick={onStopRetry}>
+                                <Square className="h-4 w-4" />
+                                Stop
+                            </Button>
+                        ) : (
+                            <Button type="button" variant="outline" onClick={onRetryFailed}>
+                                <RotateCcw className="h-4 w-4" />
+                                Retry failed
+                            </Button>
+                        )
+                    )}
                     <Button type="button" onClick={onClose}>
+                        {retrying && <Loader2 className="h-4 w-4 animate-spin" />}
                         Done
                     </Button>
                 </DialogFooter>

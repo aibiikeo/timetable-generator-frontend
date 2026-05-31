@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Eye, Plus, Search, Trash2 } from "lucide-react";
+import { Archive, Eye, Plus, Search, Trash2 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -277,6 +277,18 @@ export default function TimetablesPage() {
         setDeleteMode("SIMPLE");
     };
 
+    const handleArchive = async (timetable: TimetableResponse) => {
+        if (timetable.status === "ARCHIVED") return;
+
+        try {
+            setError("");
+            await timetableApi.archiveTimetable(timetable.id);
+            await loadData();
+        } catch (err) {
+            setError(getApiErrorMessage(err, "Failed to archive timetable"));
+        }
+    };
+
     const handleConfirmDelete = async () => {
         if (!deleteTarget) return;
 
@@ -528,6 +540,16 @@ export default function TimetablesPage() {
                                                     >
                                                         <Eye className="h-4 w-4" />
                                                     </Link>
+                                                </Button>
+
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon-sm"
+                                                    onClick={() => handleArchive(timetable)}
+                                                    aria-label="Archive timetable"
+                                                    disabled={timetable.status === "ARCHIVED"}
+                                                >
+                                                    <Archive className="h-4 w-4" />
                                                 </Button>
 
                                                 <Button

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Loader2, PlusCircle, Sparkles } from "lucide-react";
+import { Loader2, PlusCircle, Sparkles, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +20,7 @@ interface GenerateOptionsModalProps {
     loadingMode?: GenerationMode | null;
     onClose: () => void;
     onGenerate: (mode: GenerationMode) => void;
+    onStop?: () => void;
 }
 
 export default function GenerateOptionsModal({
@@ -28,6 +29,7 @@ export default function GenerateOptionsModal({
     loadingMode = null,
     onClose,
     onGenerate,
+    onStop,
 }: GenerateOptionsModalProps) {
     const renderIcon = (mode: GenerationMode, fallback: ReactNode) => {
         if (loading && loadingMode === mode) {
@@ -78,6 +80,12 @@ export default function GenerateOptionsModal({
                 </div>
 
                 <DialogFooter>
+                    {loading && (
+                        <Button type="button" variant="outline" onClick={onStop}>
+                            <Square className="h-4 w-4" />
+                            Stop
+                        </Button>
+                    )}
                     <Button type="button" variant="outline" onClick={onClose} disabled={loading}>
                         Cancel
                     </Button>

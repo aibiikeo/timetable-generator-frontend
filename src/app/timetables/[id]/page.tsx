@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import * as XLSX from "xlsx-js-style";
 import jsPDF from "jspdf";
@@ -8,6 +8,7 @@ import autoTable from "jspdf-autotable";
 import { toast } from "sonner";
 import {
     ArrowLeft,
+    Archive,
     ClipboardList,
     FileDown,
     Loader2,
@@ -16,6 +17,7 @@ import {
     Plus,
     Send,
     Settings2,
+    Square,
     Trash2,
 } from "lucide-react";
 
@@ -92,6 +94,8 @@ type DepartmentOption = {
 type FilterValue = number | "ALL";
 type GridDensity = "compact" | "medium" | "large";
 type MainTab = "schedule" | "diagnostics" | "settings";
+type AssignmentDrawerFilter = "ALL" | "SCHEDULED" | "PARTIAL" | "UNPLACED";
+type RunningGenerationAction = "generate" | "retry" | null;
 
 type DeleteTarget =
     | { type: "timetable"; entityName: string }
@@ -173,6 +177,22 @@ function findLessonRoomId(lesson: LessonResponse | null, rooms: RoomResponse[]) 
     return rooms.find((room) => room.name === lesson.roomName)?.id;
 }
 
+function isRequestCanceled(error: unknown) {
+    if (typeof error !== "object" || error === null) return false;
+
+    const candidate = error as { code?: string; name?: string; message?: string };
+    return candidate.code === "ERR_CANCELED" || candidate.name === "CanceledError" || candidate.message === "canceled";
+}
+
+function isProblemAssignment(assignment: AssignmentResponse) {
+    const status = String(assignment.placementStatus || "").toUpperCase();
+    return assignment.requiresManualInput || ["FAILED", "PARTIAL", "UNPLACED", "MANUAL_REQUIRED", "PENDING"].includes(status);
+}
+
+function getRetrySplitting(assignment: AssignmentResponse) {
+    return assignment.selectedSplitting || assignment.hoursSplitting || assignment.splittingOptions?.[0] || "";
+}
+
 function makeLessonExportText(lesson: LessonResponse) {
     return [lesson.subjectName, lesson.teacherName, lesson.roomName || "No room"].join("\n");
 }
@@ -209,11 +229,14 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
     const [showAssignmentForm, setShowAssignmentForm] = useState(false);
     const [editingAssignment, setEditingAssignment] = useState<AssignmentResponse | null>(null);
     const [assignmentsDrawerOpen, setAssignmentsDrawerOpen] = useState(false);
+    const [assignmentsDrawerFilter, setAssignmentsDrawerFilter] = useState<AssignmentDrawerFilter>("ALL");
     const [showGenerateModal, setShowGenerateModal] = useState(false);
     const [generatingMode, setGeneratingMode] = useState<GenerationMode | null>(null);
+    const [runningGenerationAction, setRunningGenerationAction] = useState<RunningGenerationAction>(null);
     const [showExportModal, setShowExportModal] = useState(false);
     const [generationResult, setGenerationResult] = useState<GenerationResponse | null>(null);
     const [manualAssignmentId, setManualAssignmentId] = useState<number | null>(null);
+    const generationAbortRef = useRef<AbortController | null>(null);
 
     const [lessonDetailsOpen, setLessonDetailsOpen] = useState(false);
     const [selectedLesson, setSelectedLesson] = useState<LessonResponse | null>(null);
@@ -344,23 +367,97 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
     }, [lunches, filteredGroups, selectedDay]);
 
     const handleGenerate = async (mode: GenerationMode) => {
+        const controller = new AbortController();
+        generationAbortRef.current = controller;
+
         try {
             setActionLoading(true);
             setGeneratingMode(mode);
+            setRunningGenerationAction("generate");
             setError("");
 
-            const result = await timetableApi.generateTimetable(timetableId, mode);
+            const result = await timetableApi.generateTimetable(timetableId, mode, controller.signal);
             setGenerationResult(result);
             setShowGenerateModal(false);
             await loadData();
 
             toast.success(`Generated ${result.placedLessonsCount} lessons. Failed: ${result.failedVerticesCount}.`);
         } catch (err) {
+            if (isRequestCanceled(err)) {
+                toast.info("Generation stopped");
+                return;
+            }
+
             const message = getApiErrorMessage(err, "Generation failed");
             setError(message);
             toast.error(message);
         } finally {
+            if (generationAbortRef.current === controller) {
+                generationAbortRef.current = null;
+            }
             setGeneratingMode(null);
+            setRunningGenerationAction(null);
+            setActionLoading(false);
+        }
+    };
+
+    const handleStopGeneration = () => {
+        generationAbortRef.current?.abort();
+        generationAbortRef.current = null;
+        setGeneratingMode(null);
+        setRunningGenerationAction(null);
+        setActionLoading(false);
+    };
+
+    const handleRetryFailed = async (scope?: AssignmentResponse[]) => {
+        const retryAssignments = (scope && scope.length > 0 ? scope : assignments.filter(isProblemAssignment))
+            .filter(isProblemAssignment);
+
+        if (retryAssignments.length === 0) {
+            toast.info("No failed or partial assignments to retry");
+            return;
+        }
+
+        const manualSplittings = retryAssignments.reduce<Record<number, string>>((acc, assignment) => {
+            const splitting = getRetrySplitting(assignment);
+            if (splitting) {
+                acc[assignment.id] = splitting;
+            }
+            return acc;
+        }, {});
+
+        if (Object.keys(manualSplittings).length === 0) {
+            toast.error("No splitting values available for retry");
+            return;
+        }
+
+        const controller = new AbortController();
+        generationAbortRef.current = controller;
+
+        try {
+            setActionLoading(true);
+            setRunningGenerationAction("retry");
+            setError("");
+
+            const result = await timetableApi.retryFailedAssignments(timetableId, manualSplittings, controller.signal);
+            setGenerationResult(result);
+            await loadData();
+
+            toast.success(`Retry finished. Placed ${result.placedLessonsCount} lessons. Failed: ${result.failedVerticesCount}.`);
+        } catch (err) {
+            if (isRequestCanceled(err)) {
+                toast.info("Retry stopped");
+                return;
+            }
+
+            const message = getApiErrorMessage(err, "Retry failed");
+            setError(message);
+            toast.error(message);
+        } finally {
+            if (generationAbortRef.current === controller) {
+                generationAbortRef.current = null;
+            }
+            setRunningGenerationAction(null);
             setActionLoading(false);
         }
     };
@@ -383,6 +480,29 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
             setPublishing(false);
             setActionLoading(false);
         }
+    };
+
+    const handleArchive = async () => {
+        if (!timetable || timetable.status === "ARCHIVED") return;
+
+        try {
+            setActionLoading(true);
+            setError("");
+            await timetableApi.archiveTimetable(timetableId);
+            await loadData();
+            toast.success("Timetable archived");
+        } catch (err) {
+            const message = getApiErrorMessage(err, "Failed to archive timetable");
+            setError(message);
+            toast.error(message);
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const openAssignmentsWithFilter = (filter: AssignmentDrawerFilter = "ALL") => {
+        setAssignmentsDrawerFilter(filter);
+        setAssignmentsDrawerOpen(true);
     };
 
     const requestDelete = (target: DeleteTarget) => {
@@ -990,10 +1110,17 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
 
                         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                             <div className="flex flex-wrap gap-2">
-                                <Button variant="outline" onClick={() => setShowGenerateModal(true)} disabled={actionLoading}><Play className="h-4 w-4" />Generate</Button>
+                                <Button variant="outline" onClick={() => setShowGenerateModal(true)} disabled={actionLoading && runningGenerationAction !== "generate"}><Play className="h-4 w-4" />Generate</Button>
+                                {runningGenerationAction && (
+                                    <Button variant="outline" onClick={handleStopGeneration}>
+                                        <Square className="h-4 w-4" />
+                                        Stop
+                                    </Button>
+                                )}
                                 <Button variant="outline" onClick={handlePublish} disabled={actionLoading || timetable.status === "PUBLISHED"}>{publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}Publish</Button>
+                                <Button variant="outline" onClick={handleArchive} disabled={actionLoading || timetable.status === "ARCHIVED"}><Archive className="h-4 w-4" />Archive</Button>
                                 <Button variant="outline" onClick={() => setShowExportModal(true)}><FileDown className="h-4 w-4" />Export</Button>
-                                <Button variant="outline" onClick={() => setAssignmentsDrawerOpen(true)}><ClipboardList className="h-4 w-4" />Assignments <Badge variant="secondary">{assignments.length}</Badge></Button>
+                                <Button variant="outline" onClick={() => openAssignmentsWithFilter("ALL")}><ClipboardList className="h-4 w-4" />Assignments <Badge variant="secondary">{assignments.length}</Badge></Button>
                                 <Button variant="destructive" onClick={() => requestDelete({ type: "timetable", entityName: timetable.name })}><Trash2 className="h-4 w-4" />Delete</Button>
                             </div>
 
@@ -1090,6 +1217,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                     generationResult={generationResult}
                     onManualPlace={openManualModal}
                     onEditAssignment={(assignment) => { setEditingAssignment(assignment); setShowAssignmentForm(true); }}
+                    onReviewAssignments={openAssignmentsWithFilter}
                 />
             )}
 
@@ -1112,6 +1240,10 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                 onEditAssignment={(assignment) => { setEditingAssignment(assignment); setShowAssignmentForm(true); }}
                 onDeleteAssignment={(assignment) => requestDelete({ type: "assignment", entityName: assignment.subjectName, assignment })}
                 onManualPlace={(assignment) => openManualModal(assignment.id)}
+                initialFilter={assignmentsDrawerFilter}
+                retrying={runningGenerationAction === "retry"}
+                onRetryFailed={handleRetryFailed}
+                onStopRetry={handleStopGeneration}
             />
 
             <Dialog open={showAssignmentForm} onOpenChange={(open) => { if (!open) { setShowAssignmentForm(false); setEditingAssignment(null); } }}>
@@ -1133,11 +1265,18 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                 </DialogContent>
             </Dialog>
 
-            <GenerateOptionsModal isOpen={showGenerateModal} onClose={() => setShowGenerateModal(false)} onGenerate={handleGenerate} timetableName={timetable.name} loading={Boolean(generatingMode)} loadingMode={generatingMode} />
+            <GenerateOptionsModal isOpen={showGenerateModal} onClose={() => setShowGenerateModal(false)} onGenerate={handleGenerate} onStop={handleStopGeneration} timetableName={timetable.name} loading={Boolean(generatingMode)} loadingMode={generatingMode} />
             <ExportModal isOpen={showExportModal} onClose={() => setShowExportModal(false)} onExport={handleExport} timetableName={timetable.name} />
 
             {generationResult && (
-                <GenerationResultModal result={generationResult} onClose={() => setGenerationResult(null)} onManualPlace={(assignmentId) => { setGenerationResult(null); openManualModal(assignmentId); }} />
+                <GenerationResultModal
+                    result={generationResult}
+                    retrying={runningGenerationAction === "retry"}
+                    onClose={() => setGenerationResult(null)}
+                    onManualPlace={(assignmentId) => { setGenerationResult(null); openManualModal(assignmentId); }}
+                    onRetryFailed={() => handleRetryFailed()}
+                    onStopRetry={handleStopGeneration}
+                />
             )}
 
             {manualAssignmentId && <ManualPlacementModal assignmentId={manualAssignmentId} rooms={rooms} onPlace={handleManualPlace} onClose={closeManualModal} />}

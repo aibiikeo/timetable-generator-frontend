@@ -71,8 +71,8 @@ function getInitialFormState(initialAssignment?: AssignmentResponse | null): For
         .find((value) => Number.isFinite(value) && value > 0);
 
     return {
-        subjectId: initialAssignment.subjectId,
-        teacherId: initialAssignment.teacherId,
+        subjectId: initialAssignment.subjectId ?? 0,
+        teacherId: initialAssignment.teacherId ?? 0,
         groupIds: initialAssignment.groupIds ?? [],
         hoursPerWeek: initialAssignment.hoursPerWeek ?? 2,
         lessonPartHours: firstPart ?? 2,
@@ -346,7 +346,7 @@ export default function AssignmentForm({
 
                 <select
                     name="subjectId"
-                    value={formData.subjectId}
+                    value={formData.subjectId ?? 0}
                     onChange={handleChange}
                     required
                     className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -370,7 +370,7 @@ export default function AssignmentForm({
 
                 <select
                     name="teacherId"
-                    value={formData.teacherId}
+                    value={formData.teacherId ?? 0}
                     onChange={handleChange}
                     required
                     className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -495,7 +495,7 @@ export default function AssignmentForm({
 
                     <select
                         name="roomTypeRequired"
-                        value={formData.roomTypeRequired}
+                        value={formData.roomTypeRequired ?? "ANY"}
                         onChange={handleChange}
                         required
                         className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -513,7 +513,7 @@ export default function AssignmentForm({
 
                     <select
                         name="shift"
-                        value={formData.shift}
+                        value={formData.shift ?? "ANY"}
                         onChange={handleChange}
                         required
                         className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -531,7 +531,7 @@ export default function AssignmentForm({
 
                     <select
                         name="specificRoomId"
-                        value={formData.specificRoomId}
+                        value={formData.specificRoomId ?? 0}
                         onChange={handleChange}
                         className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
