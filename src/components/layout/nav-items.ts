@@ -8,7 +8,6 @@ import {
     Home,
     Presentation,
     School,
-    ShieldCheck,
     Users,
 } from "lucide-react";
 
@@ -72,12 +71,6 @@ export const NAV_ITEMS: NavItem[] = [
         title: "Timetables",
         href: "/timetables",
         icon: CalendarDays,
-        group: "Scheduling",
-    },
-    {
-        title: "Constraints",
-        href: "/constraints",
-        icon: ShieldCheck,
         group: "Scheduling",
     },
     {
