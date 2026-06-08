@@ -10,10 +10,10 @@ import type {
     DayOfWeek,
     LessonRequest,
     LessonResponse,
+    RoomType,
     RoomResponse,
     TimeSlot,
 } from "@/lib/types";
-import { DAYS_OF_WEEK } from "@/lib/constants";
 
 interface LessonFormInitialValues {
     assignmentId?: number;
@@ -39,7 +39,7 @@ interface LessonFormModalProps {
     onDeleteConflictingLesson?: (lesson: LessonResponse) => void;
 }
 
-const DAYS = DAYS_OF_WEEK.filter((day) => day !== "SUNDAY");
+const ROOM_TYPES: RoomType[] = ["ANY", "CLASSROOM", "COMPUTER_LAB"];
 
 function formatTime(time: string) {
     return time.substring(0, 5);
@@ -75,9 +75,52 @@ function assignmentIsUnplacedOrPartial(assignment: AssignmentResponse) {
     );
 }
 
-function getAssignmentLabel(assignment: AssignmentResponse) {
-    const groups = assignment.groupNames.join(", ");
-    return `${assignment.subjectName} - ${assignment.teacherName}${groups ? ` - ${groups}` : ""}`;
+function getAssignmentPlacedHours(
+    assignmentId: number,
+    existingLessons: LessonResponse[],
+    editingLessonId?: number,
+) {
+    return existingLessons
+        .filter((item) => item.assignmentId === assignmentId && item.id !== editingLessonId)
+        .reduce((sum, item) => sum + Number(item.durationHours || 0), 0);
+}
+
+function getAssignmentRemainingHours(
+    assignment: AssignmentResponse,
+    existingLessons: LessonResponse[],
+    editingLessonId?: number,
+) {
+    const weeklyHours = Number(assignment.hoursPerWeek || 0);
+    const placedHours = getAssignmentPlacedHours(assignment.id, existingLessons, editingLessonId);
+    return Math.max(0, weeklyHours - placedHours);
+}
+
+function roomMatchesType(room: RoomResponse, roomType: RoomType) {
+    return roomType === "ANY" || room.type === roomType;
+}
+
+function uniqueById<T extends { id: number }>(items: T[]) {
+    return Array.from(new Map(items.map((item) => [item.id, item])).values());
+}
+
+function parseSelectNumber(value: string) {
+    const nextValue = Number(value);
+    return Number.isFinite(nextValue) ? nextValue : 0;
+}
+
+function hasValidId(value: unknown): value is number {
+    return Number.isFinite(Number(value)) && Number(value) > 0;
+}
+
+function isRoomType(value: unknown): value is RoomType {
+    return ROOM_TYPES.includes(value as RoomType);
+}
+
+function compareByName(
+    a: { id: number; name: string | null | undefined },
+    b: { id: number; name: string | null | undefined },
+) {
+    return String(a.name || "").localeCompare(String(b.name || ""));
 }
 
 function getInitialAssignmentId(
@@ -152,6 +195,9 @@ export default function LessonFormModal({
     const sortedSlots = useMemo(() => sortTimeSlots(timeSlots), [timeSlots]);
 
     const [assignmentId, setAssignmentId] = useState(0);
+    const [subjectId, setSubjectId] = useState(0);
+    const [teacherId, setTeacherId] = useState(0);
+    const [requiredRoomType, setRequiredRoomType] = useState<RoomType>("ANY");
     const [dayOfWeek, setDayOfWeek] = useState<DayOfWeek>("MONDAY");
     const [startTime, setStartTime] = useState("");
     const [durationHours, setDurationHours] = useState<number | string>(1);
@@ -161,13 +207,19 @@ export default function LessonFormModal({
     useEffect(() => {
         if (!open) return;
 
-        setAssignmentId(getInitialAssignmentId(lesson, initialValues));
+        const nextAssignmentId = getInitialAssignmentId(lesson, initialValues);
+        const initialAssignment = assignments.find((assignment) => assignment.id === nextAssignmentId);
+
+        setAssignmentId(nextAssignmentId);
+        setSubjectId(initialAssignment?.subjectId ?? 0);
+        setTeacherId(initialAssignment?.teacherId ?? 0);
+        setRequiredRoomType(initialAssignment?.roomTypeRequired ?? "ANY");
         setDayOfWeek(getInitialDay(lesson, initialValues));
         setStartTime(getInitialStartTime(sortedSlots, lesson, initialValues));
         setDurationHours(getInitialDuration(lesson, initialValues));
         setRoomId(getInitialRoomId(rooms, lesson, initialValues));
         setError("");
-    }, [initialValues, lesson, open, rooms, sortedSlots]);
+    }, [assignments, initialValues, lesson, open, rooms, sortedSlots]);
 
     useEffect(() => {
         if (!open) return;
@@ -180,9 +232,7 @@ export default function LessonFormModal({
         return () => document.removeEventListener("keydown", handleKeyDown);
     }, [open, onClose, saving]);
 
-    const selectedAssignment = assignments.find((assignment) => assignment.id === assignmentId);
-
-    const filteredAssignments = useMemo(() => {
+    const assignmentPool = useMemo(() => {
         const groupName = initialValues?.groupName;
         const byGroup = groupName
             ? assignments.filter((assignment) => assignment.groupNames.includes(groupName))
@@ -190,9 +240,103 @@ export default function LessonFormModal({
 
         if (lesson) return byGroup;
 
-        const unplaced = byGroup.filter(assignmentIsUnplacedOrPartial);
-        return unplaced.length > 0 ? unplaced : byGroup;
-    }, [assignments, initialValues?.groupName, lesson]);
+        return byGroup.filter((assignment) => (
+            assignmentIsUnplacedOrPartial(assignment) &&
+            getAssignmentRemainingHours(assignment, existingLessons) > 0
+        ));
+    }, [assignments, existingLessons, initialValues?.groupName, lesson]);
+
+    const subjectOptions = useMemo(() => {
+        return uniqueById(
+            assignmentPool
+                .filter((assignment) => hasValidId(assignment.subjectId))
+                .map((assignment) => ({
+                    id: Number(assignment.subjectId),
+                    name: assignment.subjectName || "Untitled subject",
+                })),
+        ).sort(compareByName);
+    }, [assignmentPool]);
+
+    const teacherOptions = useMemo(() => {
+        return uniqueById(
+            assignmentPool
+                .filter((assignment) => !subjectId || assignment.subjectId === subjectId)
+                .filter((assignment) => hasValidId(assignment.teacherId))
+                .map((assignment) => ({
+                    id: Number(assignment.teacherId),
+                    name: assignment.teacherName || "No teacher",
+                })),
+        ).sort(compareByName);
+    }, [assignmentPool, subjectId]);
+
+    const candidateAssignments = useMemo(() => {
+        return assignmentPool.filter((assignment) => (
+            (!subjectId || assignment.subjectId === subjectId) &&
+            (!teacherId || assignment.teacherId === teacherId) &&
+            assignment.roomTypeRequired === requiredRoomType
+        ));
+    }, [assignmentPool, requiredRoomType, subjectId, teacherId]);
+
+    const roomTypeOptions = useMemo(() => {
+        const available = new Set(
+            assignmentPool
+                .filter((assignment) => (
+                    (!subjectId || assignment.subjectId === subjectId) &&
+                    (!teacherId || assignment.teacherId === teacherId)
+                ))
+                .map((assignment) => assignment.roomTypeRequired),
+        );
+
+        return ROOM_TYPES.filter((roomType) => available.has(roomType)).filter(isRoomType);
+    }, [assignmentPool, subjectId, teacherId]);
+
+    useEffect(() => {
+        if (!open) return;
+
+        if (!subjectId && subjectOptions.length === 1) {
+            setSubjectId(subjectOptions[0].id);
+        }
+    }, [open, subjectId, subjectOptions]);
+
+    useEffect(() => {
+        if (!open) return;
+
+        if (!teacherId && teacherOptions.length === 1) {
+            setTeacherId(teacherOptions[0].id);
+        }
+    }, [open, teacherId, teacherOptions]);
+
+    useEffect(() => {
+        if (!open || roomTypeOptions.length === 0) return;
+
+        if (!roomTypeOptions.includes(requiredRoomType)) {
+            setRequiredRoomType(roomTypeOptions[0]);
+            setAssignmentId(0);
+        }
+    }, [open, requiredRoomType, roomTypeOptions]);
+
+    useEffect(() => {
+        if (!open || lesson) return;
+
+        const exact = candidateAssignments[0];
+        if (exact) {
+            setAssignmentId(exact.id);
+            if (roomId === 0 && exact.specificRoomId) setRoomId(exact.specificRoomId);
+            return;
+        }
+
+        setAssignmentId(0);
+    }, [candidateAssignments, lesson, open, requiredRoomType, roomId]);
+
+    const selectedAssignment = assignments.find((assignment) => assignment.id === assignmentId);
+
+    const remainingHours = selectedAssignment
+        ? getAssignmentRemainingHours(selectedAssignment, existingLessons, lesson?.id)
+        : 0;
+
+    const filteredRooms = useMemo(() => {
+        return rooms.filter((room) => roomMatchesType(room, requiredRoomType));
+    }, [requiredRoomType, rooms]);
 
     const conflictingLessons = useMemo(() => {
         if (!selectedAssignment || !dayOfWeek || !startTime) return [];
@@ -245,8 +389,18 @@ export default function LessonFormModal({
     const handleSubmit = async (event: React.FormEvent) => {
         event.preventDefault();
 
-        if (!assignmentId) {
-            setError("Please select assignment");
+        if (!subjectId) {
+            setError("Please select subject");
+            return;
+        }
+
+        if (!teacherId) {
+            setError("Please select teacher");
+            return;
+        }
+
+        if (!assignmentId || !selectedAssignment) {
+            setError("No assignment found for selected subject, teacher and room type");
             return;
         }
 
@@ -262,6 +416,11 @@ export default function LessonFormModal({
 
         if (Number(durationHours) < 1) {
             setError("Duration must be at least 1 slot");
+            return;
+        }
+
+        if (Number(durationHours) > remainingHours) {
+            setError(`Only ${remainingHours} weekly hour(s) left for this subject and teacher`);
             return;
         }
 
@@ -357,61 +516,85 @@ export default function LessonFormModal({
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                        <label className="mb-2 block text-sm font-medium">Assignment</label>
+                        <label className="mb-2 block text-sm font-medium">Subject</label>
                         <select
-                            value={assignmentId}
-                            onChange={(event) => setAssignmentId(Number(event.target.value))}
+                            value={subjectId}
+                            onChange={(event) => {
+                                setSubjectId(parseSelectNumber(event.target.value));
+                                setTeacherId(0);
+                                setAssignmentId(0);
+                                setError("");
+                            }}
                             disabled={saving}
                             required
                             className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                            <option value={0}>Select unplaced assignment</option>
-                            {filteredAssignments.map((assignment) => (
-                                <option key={assignment.id} value={assignment.id}>
-                                    {getAssignmentLabel(assignment)}
+                            <option value={0}>Select subject</option>
+                            {subjectOptions.map((subject) => (
+                                <option key={subject.id} value={subject.id}>
+                                    {subject.name}
                                 </option>
                             ))}
                         </select>
                     </div>
 
-                    <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-2">
                         <div>
-                            <label className="mb-2 block text-sm font-medium">Day</label>
+                            <label className="mb-2 block text-sm font-medium">Teacher</label>
                             <select
-                                value={dayOfWeek}
-                                onChange={(event) => setDayOfWeek(event.target.value as DayOfWeek)}
-                                disabled={saving}
+                                value={teacherId}
+                                onChange={(event) => {
+                                    setTeacherId(parseSelectNumber(event.target.value));
+                                    setAssignmentId(0);
+                                    setError("");
+                                }}
+                                disabled={saving || !subjectId}
                                 required
                                 className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                                {DAYS.map((day) => <option key={day} value={day}>{day}</option>)}
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="mb-2 block text-sm font-medium">Start time</label>
-                            <select
-                                value={startTime}
-                                onChange={(event) => setStartTime(event.target.value)}
-                                disabled={saving}
-                                required
-                                className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                                <option value="">Select time</option>
-                                {sortedSlots.map((slot) => (
-                                    <option key={slot.id} value={formatTime(slot.startTime)}>
-                                        {formatTime(slot.startTime)}-{formatTime(slot.endTime)}
+                                <option value={0}>Select teacher</option>
+                                {teacherOptions.map((teacher) => (
+                                    <option key={teacher.id} value={teacher.id}>
+                                        {teacher.name}
                                     </option>
                                 ))}
                             </select>
                         </div>
 
                         <div>
+                            <label className="mb-2 block text-sm font-medium">Required room type</label>
+                            <select
+                                value={requiredRoomType}
+                                onChange={(event) => {
+                                    setRequiredRoomType(event.target.value as RoomType);
+                                    setAssignmentId(0);
+                                    setRoomId(0);
+                                    setError("");
+                                }}
+                                disabled={saving}
+                                required
+                                className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                {roomTypeOptions.length === 0 ? (
+                                    <option value={requiredRoomType}>{requiredRoomType}</option>
+                                ) : (
+                                    roomTypeOptions.map((roomType) => (
+                                        <option key={roomType} value={roomType}>
+                                            {roomType === "ANY" ? "Any" : roomType === "CLASSROOM" ? "Classroom" : "Computer lab"}
+                                        </option>
+                                    ))
+                                )}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div>
                             <label className="mb-2 block text-sm font-medium">Duration</label>
                             <Input
                                 type="number"
                                 min={1}
-                                max={4}
+                                max={Math.min(4, remainingHours || 4)}
                                 value={durationHours}
                                 onChange={(event) => setDurationHours(event.target.value === "" ? "" : Number(event.target.value))}
                                 disabled={saving}
@@ -421,7 +604,7 @@ export default function LessonFormModal({
                     </div>
 
                     <div>
-                        <label className="mb-2 block text-sm font-medium">Room</label>
+                        <label className="mb-2 block text-sm font-medium">Preferred room</label>
                         <select
                             value={roomId}
                             onChange={(event) => setRoomId(Number(event.target.value))}
@@ -429,7 +612,7 @@ export default function LessonFormModal({
                             className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             <option value={0}>No room</option>
-                            {rooms.map((room) => <option key={room.id} value={room.id}>{getRoomLabel(room)}</option>)}
+                            {filteredRooms.map((room) => <option key={room.id} value={room.id}>{getRoomLabel(room)}</option>)}
                         </select>
                     </div>
 

@@ -1,114 +1,67 @@
 "use client";
 
-import { Input } from "@/components/ui/input";
-
-export interface SplittingConfig {
-    enabled: boolean;
-    minPartHours: number;
-    maxPartHours: number;
-    allowDifferentDays: boolean;
-}
-
 interface SplittingOptionsProps {
-    value: SplittingConfig;
-    onChange: (value: SplittingConfig) => void;
+    options: string[];
+    value: string;
+    manual: boolean;
+    onChange: (value: string) => void;
+    onManualChange: (value: string) => void;
+    onManualToggle: (manual: boolean) => void;
 }
 
 export default function SplittingOptions({
+                                             options,
                                              value,
+                                             manual,
                                              onChange,
+                                             onManualChange,
+                                             onManualToggle,
                                          }: SplittingOptionsProps) {
-    const update = <K extends keyof SplittingConfig>(
-        key: K,
-        nextValue: SplittingConfig[K],
-    ) => {
-        onChange({
-            ...value,
-            [key]: nextValue,
-        });
-    };
-
     return (
-        <div className="rounded-2xl border border-border p-4">
-            <div className="flex items-start justify-between gap-4">
-                <div>
-                    <h4 className="text-sm font-semibold">
-                        Splitting options
-                    </h4>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                        Split weekly hours into smaller lessons if needed.
-                    </p>
-                </div>
+        <div className="space-y-2">
+            <label className="mb-2 block text-sm font-medium">
+                Lesson split
+            </label>
 
-                <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                    <input
-                        type="checkbox"
-                        checked={value.enabled}
-                        onChange={(e) =>
-                            update("enabled", e.target.checked)
-                        }
-                        className="h-4 w-4 rounded border-gray-300"
-                    />
-                    Enabled
-                </label>
-            </div>
+            <select
+                value={manual ? "manual" : value}
+                onChange={(event) => {
+                    if (event.target.value === "manual") {
+                        onManualToggle(true);
+                        return;
+                    }
 
-            {value.enabled && (
-                <div className="mt-4 space-y-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                        <div>
-                            <label className="mb-2 block text-sm font-medium">
-                                Minimum part hours
-                            </label>
+                    onManualToggle(false);
+                    onChange(event.target.value);
+                }}
+                disabled={options.length === 0}
+                className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                required
+            >
+                {options.length === 0 ? (
+                    <option value="">No valid split</option>
+                ) : (
+                    options.map((option) => (
+                        <option key={option} value={option}>
+                            {option}
+                        </option>
+                    ))
+                )}
 
-                            <Input
-                                type="number"
-                                min={1}
-                                value={value.minPartHours}
-                                onChange={(e) =>
-                                    update(
-                                        "minPartHours",
-                                        Number(e.target.value),
-                                    )
-                                }
-                            />
-                        </div>
+                <option value="manual">Manual</option>
+            </select>
 
-                        <div>
-                            <label className="mb-2 block text-sm font-medium">
-                                Maximum part hours
-                            </label>
-
-                            <Input
-                                type="number"
-                                min={1}
-                                value={value.maxPartHours}
-                                onChange={(e) =>
-                                    update(
-                                        "maxPartHours",
-                                        Number(e.target.value),
-                                    )
-                                }
-                            />
-                        </div>
-                    </div>
-
-                    <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm">
-                        <input
-                            type="checkbox"
-                            checked={value.allowDifferentDays}
-                            onChange={(e) =>
-                                update(
-                                    "allowDifferentDays",
-                                    e.target.checked,
-                                )
-                            }
-                            className="h-4 w-4 rounded border-gray-300"
-                        />
-                        Allow parts on different days
-                    </label>
-                </div>
+            {manual && (
+                <input
+                    type="text"
+                    value={value}
+                    onChange={(event) => onManualChange(event.target.value)}
+                    placeholder="2+2+2"
+                    className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    required
+                />
             )}
+
         </div>
     );
 }

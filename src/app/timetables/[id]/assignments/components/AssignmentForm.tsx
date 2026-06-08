@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,9 +17,10 @@ import type {
     TimeSlot,
     TimeSlotExclusion,
 } from "@/lib/types";
+import { generateSplittingOptions } from "@/lib/splitting";
 
 import ExceptionsPicker, { TimeException } from "./ExceptionsPicker";
-import SplittingOptions, { SplittingConfig } from "./SplittingOptions";
+import SplittingOptions from "./SplittingOptions";
 
 interface AssignmentFormProps {
     initialAssignment?: AssignmentResponse | null;
@@ -38,7 +39,7 @@ interface FormState {
     teacherId: number;
     groupIds: number[];
     hoursPerWeek: number | string;
-    lessonPartHours: number | string;
+    hoursSplitting: string;
     specificRoomId: number;
     roomTypeRequired: RoomType;
     shift: Shift;
@@ -49,71 +50,56 @@ const EMPTY_FORM: FormState = {
     teacherId: 0,
     groupIds: [],
     hoursPerWeek: 2,
-    lessonPartHours: 2,
+    hoursSplitting: "2",
     specificRoomId: 0,
     roomTypeRequired: "ANY",
     shift: "MORNING",
 };
 
-const DEFAULT_SPLITTING: SplittingConfig = {
-    enabled: false,
-    minPartHours: 2,
-    maxPartHours: 2,
-    allowDifferentDays: true,
-};
-
 function getInitialFormState(initialAssignment?: AssignmentResponse | null): FormState {
     if (!initialAssignment) return EMPTY_FORM;
-
-    const firstPart = initialAssignment.hoursSplitting
-        ?.split("+")
-        .map(Number)
-        .find((value) => Number.isFinite(value) && value > 0);
 
     return {
         subjectId: initialAssignment.subjectId ?? 0,
         teacherId: initialAssignment.teacherId ?? 0,
         groupIds: initialAssignment.groupIds ?? [],
         hoursPerWeek: initialAssignment.hoursPerWeek ?? 2,
-        lessonPartHours: firstPart ?? 2,
+        hoursSplitting: normalizeSplitting(
+            initialAssignment.hoursSplitting ||
+            String(initialAssignment.hoursPerWeek ?? 2),
+        ),
         specificRoomId: initialAssignment.specificRoomId ?? 0,
         roomTypeRequired: initialAssignment.roomTypeRequired ?? "ANY",
         shift: initialAssignment.shift ?? "MORNING",
     };
 }
 
-function buildDefaultHoursSplitting(
-    hoursPerWeek: number,
-    lessonPartHours: number,
-): string {
-    const parts: number[] = [];
-    let remaining = hoursPerWeek;
-
-    while (remaining > 0) {
-        const nextPart = Math.min(lessonPartHours, remaining);
-        parts.push(nextPart);
-        remaining -= nextPart;
-    }
-
-    return parts.join("+");
+function normalizeSplitting(value: string): string {
+    return value
+        .split("+")
+        .map((part) => Number(part.trim()))
+        .filter((part) => Number.isFinite(part) && part > 0)
+        .sort((a, b) => b - a)
+        .join("+");
 }
 
-function buildCustomHoursSplitting(
-    hoursPerWeek: number,
-    splitting: SplittingConfig,
-): string {
-    const maxPartHours = Math.min(Number(splitting.maxPartHours), 4);
+function parseSplittingParts(value: string): number[] {
+    if (!/^\s*\d+(\s*\+\s*\d+)*\s*$/.test(value)) return [];
 
-    const parts: number[] = [];
-    let remaining = hoursPerWeek;
+    return value
+        .split("+")
+        .map((part) => Number(part.trim()))
+        .filter((part) => Number.isFinite(part));
+}
 
-    while (remaining > 0) {
-        const nextPart = Math.min(maxPartHours, remaining);
-        parts.push(nextPart);
-        remaining -= nextPart;
-    }
+function isValidManualSplitting(value: string, total: number): boolean {
+    const parts = parseSplittingParts(value);
 
-    return parts.join("+");
+    return (
+        parts.length > 0 &&
+        parts.every((part) => [2, 3, 4].includes(part)) &&
+        parts.reduce((sum, part) => sum + part, 0) === total
+    );
 }
 
 function buildExcludedTimeSlots(
@@ -153,8 +139,7 @@ export default function AssignmentForm({
     );
 
     const [exceptions, setExceptions] = useState<TimeException[]>([]);
-    const [splitting, setSplitting] =
-        useState<SplittingConfig>(DEFAULT_SPLITTING);
+    const [manualSplitting, setManualSplitting] = useState(false);
 
     const [error, setError] = useState("");
 
@@ -166,6 +151,37 @@ export default function AssignmentForm({
     const allGroupsSelected =
         orderedGroups.length > 0 &&
         selectedGroupsCount === orderedGroups.length;
+    const splittingOptions = useMemo(() => {
+        return generateSplittingOptions(Number(formData.hoursPerWeek));
+    }, [formData.hoursPerWeek]);
+
+    useEffect(() => {
+        if (manualSplitting) return;
+
+        if (splittingOptions.length === 0) {
+            setFormData((prev) => ({
+                ...prev,
+                hoursSplitting: "",
+            }));
+            return;
+        }
+
+        setFormData((prev) => {
+            const current = normalizeSplitting(prev.hoursSplitting);
+
+            if (splittingOptions.includes(current)) {
+                return {
+                    ...prev,
+                    hoursSplitting: current,
+                };
+            }
+
+            return {
+                ...prev,
+                hoursSplitting: splittingOptions[0],
+            };
+        });
+    }, [manualSplitting, splittingOptions]);
 
     const handleChange = (
         e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
@@ -216,7 +232,6 @@ export default function AssignmentForm({
 
     const validateForm = () => {
         const hoursPerWeek = Number(formData.hoursPerWeek);
-        const lessonPartHours = Number(formData.lessonPartHours);
 
         if (!formData.subjectId) {
             setError("Please select a subject");
@@ -238,21 +253,6 @@ export default function AssignmentForm({
             return false;
         }
 
-        if (!Number.isFinite(lessonPartHours) || lessonPartHours < 2) {
-            setError("Lesson duration must be at least 2 slots");
-            return false;
-        }
-
-        if (lessonPartHours > hoursPerWeek) {
-            setError("Lesson duration cannot be greater than hours per week");
-            return false;
-        }
-
-        if (lessonPartHours > 4) {
-            setError("Lesson duration cannot be greater than 4 slots");
-            return false;
-        }
-
         if (!formData.roomTypeRequired) {
             setError("Please select required room type");
             return false;
@@ -263,41 +263,13 @@ export default function AssignmentForm({
             return false;
         }
 
-        if (splitting.enabled && Number(splitting.minPartHours) < 2) {
-            setError(
-                "Generated split parts must take at least 2 slots. One-slot lessons are only for manual placement.",
-            );
-            return false;
-        }
-
-        if (splitting.enabled && Number(splitting.maxPartHours) < 2) {
-            setError("Maximum split hours must be at least 2 slots");
-            return false;
-        }
-
-        if (
-            splitting.enabled &&
-            Number(splitting.minPartHours) > Number(splitting.maxPartHours)
-        ) {
-            setError("Minimum split hours cannot be greater than maximum split hours");
-            return false;
-        }
-
-        if (
-            splitting.enabled &&
-            Number(splitting.maxPartHours) > hoursPerWeek
-        ) {
-            setError("Maximum split hours cannot be greater than hours per week");
-            return false;
-        }
-
-        if (splitting.enabled && Number(splitting.minPartHours) > 4) {
-            setError("Minimum split hours cannot be greater than 4 slots");
-            return false;
-        }
-
-        if (splitting.enabled && Number(splitting.maxPartHours) > 4) {
-            setError("Maximum split hours cannot be greater than 4 slots");
+        if (manualSplitting) {
+            if (!isValidManualSplitting(formData.hoursSplitting, hoursPerWeek)) {
+                setError("Manual split must use 2, 3 or 4 and match weekly hours, for example 2+2+2");
+                return false;
+            }
+        } else if (!splittingOptions.includes(formData.hoursSplitting)) {
+            setError("Please select a valid lesson split");
             return false;
         }
 
@@ -310,11 +282,9 @@ export default function AssignmentForm({
         if (!validateForm()) return;
 
         const hoursPerWeek = Number(formData.hoursPerWeek);
-        const lessonPartHours = Number(formData.lessonPartHours);
-
-        const hoursSplitting = splitting.enabled
-            ? buildCustomHoursSplitting(hoursPerWeek, splitting)
-            : buildDefaultHoursSplitting(hoursPerWeek, lessonPartHours);
+        const hoursSplitting = manualSplitting
+            ? parseSplittingParts(formData.hoursSplitting).join("+")
+            : formData.hoursSplitting;
 
         const excludedTimeSlots = buildExcludedTimeSlots(exceptions, timeSlots);
 
@@ -470,21 +440,35 @@ export default function AssignmentForm({
                     />
                 </div>
 
-                <div>
-                    <label className="mb-2 block text-sm font-medium">
-                        Lesson duration
-                    </label>
-
-                    <Input
-                        type="number"
-                        name="lessonPartHours"
-                        min={2}
-                        max={4}
-                        value={formData.lessonPartHours}
-                        onChange={handleChange}
-                        required
-                    />
-                </div>
+                <SplittingOptions
+                    options={splittingOptions}
+                    value={formData.hoursSplitting}
+                    manual={manualSplitting}
+                    onChange={(nextValue) => {
+                        setFormData((prev) => ({
+                            ...prev,
+                            hoursSplitting: nextValue,
+                        }));
+                        setError("");
+                    }}
+                    onManualChange={(nextValue) => {
+                        setFormData((prev) => ({
+                            ...prev,
+                            hoursSplitting: nextValue,
+                        }));
+                        setError("");
+                    }}
+                    onManualToggle={(nextManual) => {
+                        setManualSplitting(nextManual);
+                        setFormData((prev) => ({
+                            ...prev,
+                            hoursSplitting: nextManual
+                                ? prev.hoursSplitting || splittingOptions[0] || ""
+                                : splittingOptions[0] || "",
+                        }));
+                        setError("");
+                    }}
+                />
             </div>
 
             <div className="grid gap-4 sm:grid-cols-3">
@@ -545,14 +529,6 @@ export default function AssignmentForm({
                     </select>
                 </div>
             </div>
-
-            <SplittingOptions
-                value={splitting}
-                onChange={(nextValue) => {
-                    setSplitting(nextValue);
-                    setError("");
-                }}
-            />
 
             <ExceptionsPicker
                 value={exceptions}
