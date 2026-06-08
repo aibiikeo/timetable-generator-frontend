@@ -62,6 +62,7 @@ import type {
     LessonResponse,
     LunchRequest,
     LunchResponse,
+    Degree,
     RoomResponse,
     StudyGroupResponse,
     SubjectResponse,
@@ -184,6 +185,10 @@ function isRequestCanceled(error: unknown) {
     return candidate.code === "ERR_CANCELED" || candidate.name === "CanceledError" || candidate.message === "canceled";
 }
 
+function showErrorToast(message: string) {
+    toast.error(message, { duration: Infinity });
+}
+
 function isProblemAssignment(assignment: AssignmentResponse) {
     const status = String(assignment.placementStatus || "").toUpperCase();
     return assignment.requiresManualInput || ["FAILED", "PARTIAL", "UNPLACED", "MANUAL_REQUIRED", "PENDING"].includes(status);
@@ -195,6 +200,67 @@ function getRetrySplitting(assignment: AssignmentResponse) {
 
 function makeLessonExportText(lesson: LessonResponse) {
     return [lesson.subjectName, lesson.teacherName, lesson.roomName || "No room"].join("\n");
+}
+
+function sanitizeExcelSheetName(name: string) {
+    const cleaned = name.replace(/[\[\]:*?/\\]/g, " ").replace(/\s+/g, " ").trim();
+    return (cleaned || "Sheet").slice(0, 31);
+}
+
+function makeUniqueSheetName(name: string, usedNames: Set<string>) {
+    const base = sanitizeExcelSheetName(name);
+    let candidate = base;
+    let index = 2;
+
+    while (usedNames.has(candidate)) {
+        const suffix = ` ${index}`;
+        candidate = `${base.slice(0, 31 - suffix.length)}${suffix}`;
+        index += 1;
+    }
+
+    usedNames.add(candidate);
+    return candidate;
+}
+
+function getExcelExportSheets(groups: StudyGroupResponse[]) {
+    const sheets: Array<{ name: string; groups: StudyGroupResponse[] }> = [];
+    const bachelorByDepartment = new Map<number | string, { name: string; groups: StudyGroupResponse[] }>();
+
+    groups.forEach((group) => {
+        if (group.degree === "BACHELOR") {
+            const key = group.departmentId ?? group.departmentName ?? "Bachelor";
+            const name = group.departmentName || "Bachelor";
+            const entry = bachelorByDepartment.get(key) ?? { name, groups: [] };
+            entry.groups.push(group);
+            bachelorByDepartment.set(key, entry);
+        }
+    });
+
+    [...bachelorByDepartment.values()]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .forEach((entry) => {
+            sheets.push({
+                name: `Bachelor - ${entry.name}`,
+                groups: entry.groups,
+            });
+        });
+
+    const standaloneDegrees: Degree[] = ["MASTER", "PHD", "SPECIALIST"];
+    standaloneDegrees.forEach((degree) => {
+        const degreeGroups = groups.filter((group) => group.degree === degree);
+        if (degreeGroups.length > 0) {
+            sheets.push({
+                name: degree === "PHD" ? "PhD" : degree,
+                groups: degreeGroups,
+            });
+        }
+    });
+
+    return sheets.length > 0 ? sheets : [{ name: "Timetable", groups }];
+}
+
+function getExportSections(groups: StudyGroupResponse[]) {
+    return getExcelExportSheets(groups);
 }
 
 function getLessonForExportCell(lessons: LessonResponse[], groupName: string, slot: TimeSlot, day: DayOfWeek) {
@@ -331,7 +397,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         } catch (err) {
             const message = getApiErrorMessage(err, "Failed to load timetable data");
             setError(message);
-            toast.error(message);
+            showErrorToast(message);
         } finally {
             if (initial) setLoading(false);
         }
@@ -390,7 +456,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
 
             const message = getApiErrorMessage(err, "Generation failed");
             setError(message);
-            toast.error(message);
+            showErrorToast(message);
         } finally {
             if (generationAbortRef.current === controller) {
                 generationAbortRef.current = null;
@@ -427,7 +493,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         }, {});
 
         if (Object.keys(manualSplittings).length === 0) {
-            toast.error("No splitting values available for retry");
+            showErrorToast("No splitting values available for retry");
             return;
         }
 
@@ -452,7 +518,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
 
             const message = getApiErrorMessage(err, "Retry failed");
             setError(message);
-            toast.error(message);
+            showErrorToast(message);
         } finally {
             if (generationAbortRef.current === controller) {
                 generationAbortRef.current = null;
@@ -475,7 +541,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         } catch (err) {
             const message = getApiErrorMessage(err, "Failed to publish timetable");
             setError(message);
-            toast.error(message);
+            showErrorToast(message);
         } finally {
             setPublishing(false);
             setActionLoading(false);
@@ -494,7 +560,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         } catch (err) {
             const message = getApiErrorMessage(err, "Failed to archive timetable");
             setError(message);
-            toast.error(message);
+            showErrorToast(message);
         } finally {
             setActionLoading(false);
         }
@@ -544,7 +610,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         } catch (err) {
             const message = getApiErrorMessage(err, "Delete failed");
             setError(message);
-            toast.error(message);
+            showErrorToast(message);
         } finally {
             setActionLoading(false);
         }
@@ -565,158 +631,167 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         const fileName = `timetable_${timetable.id}_${selectedDay === "ALL" ? "all_days" : selectedDay.toLowerCase()}`;
 
         if (format === "excel") {
-            const rows: string[][] = [];
-            const merges: XLSX.Range[] = [];
-            const styledCells = new Map<string, { fill: string; text: string; bold?: boolean }>();
-            let currentExcelRow = 1;
+            const workbook = XLSX.utils.book_new();
+            const usedSheetNames = new Set<string>();
 
-            daysToExport.forEach((day) => {
-                const dayStartRow = currentExcelRow;
+            const appendExcelSheet = (sheetName: string, sheetGroups: StudyGroupResponse[]) => {
+                const rows: string[][] = [];
+                const merges: XLSX.Range[] = [];
+                const styledCells = new Map<string, { fill: string; text: string; bold?: boolean }>();
+                let currentExcelRow = 1;
 
-                groupsToExport.forEach((group, groupIndex) => {
-                    const row: string[] = [groupIndex === 0 ? day : "", group.name];
-                    let slotIndex = 0;
+                daysToExport.forEach((day) => {
+                    const dayStartRow = currentExcelRow;
 
-                    while (slotIndex < slotsToExport.length) {
-                        const slot = slotsToExport[slotIndex];
-                        const lesson = getLessonForExportCell(filteredLessons, group.name, slot, day);
+                    sheetGroups.forEach((group, groupIndex) => {
+                        const row: string[] = [groupIndex === 0 ? day : "", group.name];
+                        let slotIndex = 0;
 
-                        if (lesson) {
-                            const span = getLessonDurationSpan(lesson, slotIndex, slotsToExport.length);
-                            const cellColumnIndex = 2 + slotIndex;
-                            const cellAddress = XLSX.utils.encode_cell({ r: currentExcelRow, c: cellColumnIndex });
-                            const color = getExportColorByLesson(lesson);
+                        while (slotIndex < slotsToExport.length) {
+                            const slot = slotsToExport[slotIndex];
+                            const lesson = getLessonForExportCell(filteredLessons, group.name, slot, day);
 
-                            row.push(makeLessonExportText(lesson));
-                            styledCells.set(cellAddress, { fill: color.fill, text: color.text, bold: true });
+                            if (lesson) {
+                                const span = getLessonDurationSpan(lesson, slotIndex, slotsToExport.length);
+                                const cellColumnIndex = 2 + slotIndex;
+                                const cellAddress = XLSX.utils.encode_cell({ r: currentExcelRow, c: cellColumnIndex });
+                                const color = getExportColorByLesson(lesson);
 
-                            if (span > 1) {
-                                merges.push({
-                                    s: { r: currentExcelRow, c: cellColumnIndex },
-                                    e: { r: currentExcelRow, c: cellColumnIndex + span - 1 },
-                                });
+                                row.push(makeLessonExportText(lesson));
+                                styledCells.set(cellAddress, { fill: color.fill, text: color.text, bold: true });
 
-                                for (let offset = 1; offset < span; offset += 1) {
-                                    row.push("");
+                                if (span > 1) {
+                                    merges.push({
+                                        s: { r: currentExcelRow, c: cellColumnIndex },
+                                        e: { r: currentExcelRow, c: cellColumnIndex + span - 1 },
+                                    });
+
+                                    for (let offset = 1; offset < span; offset += 1) {
+                                        row.push("");
+                                    }
                                 }
+
+                                slotIndex += span;
+                            } else {
+                                row.push("");
+                                slotIndex += 1;
                             }
-
-                            slotIndex += span;
-                        } else {
-                            row.push("");
-                            slotIndex += 1;
                         }
-                    }
 
-                    rows.push(row);
-                    currentExcelRow += 1;
+                        rows.push(row);
+                        currentExcelRow += 1;
+                    });
+
+                    if (sheetGroups.length > 1) {
+                        merges.push({
+                            s: { r: dayStartRow, c: 0 },
+                            e: { r: dayStartRow + sheetGroups.length - 1, c: 0 },
+                        });
+                    }
                 });
 
-                if (groupsToExport.length > 1) {
-                    merges.push({
-                        s: { r: dayStartRow, c: 0 },
-                        e: { r: dayStartRow + groupsToExport.length - 1, c: 0 },
-                    });
+                const worksheet = XLSX.utils.aoa_to_sheet([]);
+
+                XLSX.utils.sheet_add_aoa(
+                    worksheet,
+                    [[`${displayTimetableName} - ${timetable.academicYearStart}-${timetable.academicYearEnd} - ${timetable.semester}`]],
+                    { origin: "A1" },
+                );
+                XLSX.utils.sheet_add_aoa(worksheet, [headers, ...rows], { origin: "A3" });
+
+                worksheet["!merges"] = [
+                    { s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(2, headers.length - 1) } },
+                    ...merges.map((merge) => ({
+                        s: { r: merge.s.r + 2, c: merge.s.c },
+                        e: { r: merge.e.r + 2, c: merge.e.c },
+                    })),
+                ];
+                worksheet["!cols"] = [
+                    { wch: 16 },
+                    { wch: 20 },
+                    ...slotsToExport.map(() => ({ wch: 24 })),
+                ];
+                worksheet["!rows"] = [
+                    { hpt: 30 },
+                    { hpt: 8 },
+                    { hpt: 28 },
+                    ...rows.map(() => ({ hpt: 58 })),
+                ];
+
+                worksheet["A1"].s = {
+                    fill: { patternType: "solid", fgColor: { rgb: "111827" } },
+                    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 14 },
+                    alignment: { vertical: "center", horizontal: "left" },
+                };
+
+                const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
+
+                for (let row = 2; row <= range.e.r; row += 1) {
+                    for (let col = range.s.c; col <= range.e.c; col += 1) {
+                        const address = XLSX.utils.encode_cell({ r: row, c: col });
+                        const originalAddress = XLSX.utils.encode_cell({ r: row - 2, c: col });
+
+                        if (!worksheet[address]) {
+                            worksheet[address] = { t: "s", v: "" };
+                        }
+
+                        const cell = worksheet[address];
+                        const value = String(cell.v || "");
+                        const isHeader = row === 2;
+                        const isDayColumn = col === 0;
+                        const isGroupColumn = col === 1;
+                        const customStyle = styledCells.get(originalAddress);
+
+                        let fillColor = "FFFFFF";
+                        let textColor = "111827";
+                        let bold = false;
+                        let horizontal: "left" | "center" = "left";
+
+                        if (isHeader) {
+                            fillColor = "111827";
+                            textColor = "FFFFFF";
+                            bold = true;
+                            horizontal = "center";
+                        } else if (isDayColumn) {
+                            fillColor = "DBEAFE";
+                            textColor = "1E3A8A";
+                            bold = true;
+                            horizontal = "center";
+                        } else if (isGroupColumn) {
+                            fillColor = "F8FAFC";
+                            bold = true;
+                        } else if (customStyle) {
+                            fillColor = customStyle.fill;
+                            textColor = customStyle.text;
+                            bold = customStyle.bold ?? true;
+                        } else if (value.trim()) {
+                            const color = getExportColorByText(value.split("\n")[0]);
+                            fillColor = color.fill;
+                            textColor = color.text;
+                            bold = true;
+                        }
+
+                        cell.s = {
+                            fill: { patternType: "solid", fgColor: { rgb: fillColor } },
+                            font: { bold, color: { rgb: textColor }, sz: isHeader ? 11 : 9 },
+                            alignment: { vertical: "center", horizontal, wrapText: true },
+                            border: {
+                                top: { style: "thin", color: { rgb: "CBD5E1" } },
+                                bottom: { style: "thin", color: { rgb: "CBD5E1" } },
+                                left: { style: "thin", color: { rgb: "CBD5E1" } },
+                                right: { style: "thin", color: { rgb: "CBD5E1" } },
+                            },
+                        };
+                    }
                 }
-            });
 
-            const worksheet = XLSX.utils.aoa_to_sheet([]);
-            const workbook = XLSX.utils.book_new();
-
-            XLSX.utils.sheet_add_aoa(
-                worksheet,
-                [[`${displayTimetableName} - ${timetable.academicYearStart}-${timetable.academicYearEnd} - ${timetable.semester}`]],
-                { origin: "A1" },
-            );
-            XLSX.utils.sheet_add_aoa(worksheet, [headers, ...rows], { origin: "A3" });
-
-            worksheet["!merges"] = [
-                { s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(2, headers.length - 1) } },
-                ...merges.map((merge) => ({
-                    s: { r: merge.s.r + 2, c: merge.s.c },
-                    e: { r: merge.e.r + 2, c: merge.e.c },
-                })),
-            ];
-            worksheet["!cols"] = [
-                { wch: 16 },
-                { wch: 20 },
-                ...slotsToExport.map(() => ({ wch: 24 })),
-            ];
-            worksheet["!rows"] = [
-                { hpt: 30 },
-                { hpt: 8 },
-                { hpt: 28 },
-                ...rows.map(() => ({ hpt: 58 })),
-            ];
-
-            worksheet["A1"].s = {
-                fill: { patternType: "solid", fgColor: { rgb: "111827" } },
-                font: { bold: true, color: { rgb: "FFFFFF" }, sz: 14 },
-                alignment: { vertical: "center", horizontal: "left" },
+                XLSX.utils.book_append_sheet(workbook, worksheet, makeUniqueSheetName(sheetName, usedSheetNames));
             };
 
-            const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
+            getExcelExportSheets(groupsToExport).forEach((sheet) => {
+                appendExcelSheet(sheet.name, sheet.groups);
+            });
 
-            for (let row = 2; row <= range.e.r; row += 1) {
-                for (let col = range.s.c; col <= range.e.c; col += 1) {
-                    const address = XLSX.utils.encode_cell({ r: row, c: col });
-                    const originalAddress = XLSX.utils.encode_cell({ r: row - 2, c: col });
-
-                    if (!worksheet[address]) {
-                        worksheet[address] = { t: "s", v: "" };
-                    }
-
-                    const cell = worksheet[address];
-                    const value = String(cell.v || "");
-                    const isHeader = row === 2;
-                    const isDayColumn = col === 0;
-                    const isGroupColumn = col === 1;
-                    const customStyle = styledCells.get(originalAddress);
-
-                    let fillColor = "FFFFFF";
-                    let textColor = "111827";
-                    let bold = false;
-                    let horizontal: "left" | "center" = "left";
-
-                    if (isHeader) {
-                        fillColor = "111827";
-                        textColor = "FFFFFF";
-                        bold = true;
-                        horizontal = "center";
-                    } else if (isDayColumn) {
-                        fillColor = "DBEAFE";
-                        textColor = "1E3A8A";
-                        bold = true;
-                        horizontal = "center";
-                    } else if (isGroupColumn) {
-                        fillColor = "F8FAFC";
-                        bold = true;
-                    } else if (customStyle) {
-                        fillColor = customStyle.fill;
-                        textColor = customStyle.text;
-                        bold = customStyle.bold ?? true;
-                    } else if (value.trim()) {
-                        const color = getExportColorByText(value.split("\n")[0]);
-                        fillColor = color.fill;
-                        textColor = color.text;
-                        bold = true;
-                    }
-
-                    cell.s = {
-                        fill: { patternType: "solid", fgColor: { rgb: fillColor } },
-                        font: { bold, color: { rgb: textColor }, sz: isHeader ? 11 : 9 },
-                        alignment: { vertical: "center", horizontal, wrapText: true },
-                        border: {
-                            top: { style: "thin", color: { rgb: "CBD5E1" } },
-                            bottom: { style: "thin", color: { rgb: "CBD5E1" } },
-                            left: { style: "thin", color: { rgb: "CBD5E1" } },
-                            right: { style: "thin", color: { rgb: "CBD5E1" } },
-                        },
-                    };
-                }
-            }
-
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Timetable");
             XLSX.writeFile(workbook, `${fileName}.xlsx`);
         } else {
             const groupsPerPage = 10;
@@ -725,7 +800,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
             const pageHeight = doc.internal.pageSize.getHeight();
             let isFirstPage = true;
 
-            const drawPageHeader = (day: DayOfWeek, pagePart: number) => {
+            const drawPageHeader = (sectionName: string, day: DayOfWeek, pagePart: number) => {
                 doc.setFillColor(17, 24, 39);
                 doc.rect(0, 0, pageWidth, 24, "F");
                 doc.setTextColor(255, 255, 255);
@@ -733,7 +808,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                 doc.text(displayTimetableName, 12, 12);
                 doc.setFontSize(9);
                 doc.text(
-                    `${timetable.academicYearStart}-${timetable.academicYearEnd} - ${timetable.semester} - ${day}${pagePart > 1 ? ` - Part ${pagePart}` : ""}`,
+                    `${sectionName} - ${timetable.academicYearStart}-${timetable.academicYearEnd} - ${timetable.semester} - ${day}${pagePart > 1 ? ` - Part ${pagePart}` : ""}`,
                     12,
                     18,
                 );
@@ -834,51 +909,53 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                 })),
             ];
 
-            daysToExport.forEach((day) => {
-                for (let startIndex = 0; startIndex < groupsToExport.length; startIndex += groupsPerPage) {
-                    const pagePart = Math.floor(startIndex / groupsPerPage) + 1;
-                    const groupsChunk = groupsToExport.slice(startIndex, startIndex + groupsPerPage);
+            getExportSections(groupsToExport).forEach((section) => {
+                daysToExport.forEach((day) => {
+                    for (let startIndex = 0; startIndex < section.groups.length; startIndex += groupsPerPage) {
+                        const pagePart = Math.floor(startIndex / groupsPerPage) + 1;
+                        const groupsChunk = section.groups.slice(startIndex, startIndex + groupsPerPage);
 
-                    if (!isFirstPage) {
-                        doc.addPage();
-                    }
+                        if (!isFirstPage) {
+                            doc.addPage();
+                        }
 
-                    isFirstPage = false;
-                    drawPageHeader(day, pagePart);
+                        isFirstPage = false;
+                        drawPageHeader(section.name, day, pagePart);
 
-                    autoTable(doc, {
-                        head: [headRow],
-                        body: buildRowsForDay(day, groupsChunk),
-                        startY: 30,
-                        theme: "grid",
-                        styles: {
-                            fontSize: 6.5,
-                            cellPadding: 1.6,
-                            valign: "middle",
-                            overflow: "linebreak",
-                            lineColor: [203, 213, 225],
-                            lineWidth: 0.18,
-                        },
-                        headStyles: {
-                            fillColor: [17, 24, 39],
-                            textColor: [255, 255, 255],
-                            fontStyle: "bold",
-                            halign: "center",
-                            valign: "middle",
-                        },
-                        columnStyles: {
-                            0: {
-                                cellWidth: 28,
-                                fontStyle: "bold",
-                                fillColor: [248, 250, 252],
-                                textColor: [17, 24, 39],
+                        autoTable(doc, {
+                            head: [headRow],
+                            body: buildRowsForDay(day, groupsChunk),
+                            startY: 30,
+                            theme: "grid",
+                            styles: {
+                                fontSize: 6.5,
+                                cellPadding: 1.6,
+                                valign: "middle",
+                                overflow: "linebreak",
+                                lineColor: [203, 213, 225],
+                                lineWidth: 0.18,
                             },
-                        },
-                        margin: { left: 6, right: 6, bottom: 14 },
-                        tableWidth: "auto",
-                        didDrawPage: drawFooter,
-                    });
-                }
+                            headStyles: {
+                                fillColor: [17, 24, 39],
+                                textColor: [255, 255, 255],
+                                fontStyle: "bold",
+                                halign: "center",
+                                valign: "middle",
+                            },
+                            columnStyles: {
+                                0: {
+                                    cellWidth: 28,
+                                    fontStyle: "bold",
+                                    fillColor: [248, 250, 252],
+                                    textColor: [17, 24, 39],
+                                },
+                            },
+                            margin: { left: 6, right: 6, bottom: 14 },
+                            tableWidth: "auto",
+                            didDrawPage: drawFooter,
+                        });
+                    }
+                });
             });
 
             doc.save(`${fileName}.pdf`);
@@ -899,7 +976,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
             const success = await timetableApi.manualPlaceLesson(timetableId, manualAssignmentId, data);
 
             if (!success) {
-                toast.error("Manual placement failed because of conflicts");
+                showErrorToast("Manual placement failed because of conflicts");
                 return;
             }
 
@@ -909,7 +986,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         } catch (err) {
             const message = getApiErrorMessage(err, "Manual placement failed");
             setError(message);
-            toast.error(message);
+            showErrorToast(message);
         } finally {
             setActionLoading(false);
         }
@@ -934,7 +1011,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         } catch (err) {
             const message = getApiErrorMessage(err, "Failed to save assignment");
             setError(message);
-            toast.error(message);
+            showErrorToast(message);
         } finally {
             setActionLoading(false);
         }
@@ -976,7 +1053,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         } catch (err) {
             const message = getApiErrorMessage(err, "Failed to save lesson");
             setError(message);
-            toast.error(message);
+            showErrorToast(message);
         } finally {
             setActionLoading(false);
         }
@@ -999,7 +1076,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         } catch (err) {
             const message = getApiErrorMessage(err, "Failed to save time slot");
             setError(message);
-            toast.error(message);
+            showErrorToast(message);
         } finally {
             setActionLoading(false);
         }
@@ -1014,7 +1091,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         } catch (err) {
             const message = getApiErrorMessage(err, "Failed to create lunch block");
             setError(message);
-            toast.error(message);
+            showErrorToast(message);
         } finally {
             setActionLoading(false);
         }
@@ -1087,8 +1164,6 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                     </div>
                 }
             />
-
-            {error && <Card className="mb-6 border-red-200 bg-red-50 text-red-800"><CardContent className="p-4 text-sm">{error}</CardContent></Card>}
 
             <Card className="glass-card mt-6">
                 <CardHeader>
