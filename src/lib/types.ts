@@ -28,7 +28,7 @@ export type DeleteMode = "SIMPLE" | "DETACH" | "WITH";
 
 export type GenerationMode = "NEW" | "APPEND";
 
-export type Degree = "BACHELOR" | "MASTER" | "PHD " | "SPECIALIST";
+export type Degree = "BACHELOR" | "MASTER" | "PHD" | "SPECIALIST";
 
 // ====================== AUTH ======================
 
@@ -91,7 +91,6 @@ export interface DepartmentResponse {
 export interface MajorRequest {
     name: string;
     shortName: string;
-    degree: Degree;
     departmentId: number;
 }
 
@@ -99,7 +98,6 @@ export interface MajorResponse {
     id: number;
     name: string;
     shortName: string;
-    degree: Degree;
     departmentId: number;
     departmentName: string;
     facultyId: number;
@@ -111,6 +109,7 @@ export interface MajorResponse {
 export interface StudyGroupRequest {
     name: string;
     majorId: number;
+    degree: Degree;
     course: number;
     studentCount: number;
 }
@@ -284,6 +283,7 @@ export interface TimetableRequest {
     name: string;
     academicYearStart: number;
     semester: Semester;
+    facultyId: number;
     generationSettings: Record<string, unknown>;
 }
 
@@ -293,6 +293,8 @@ export interface TimetableResponse {
     academicYearStart: number;
     academicYearEnd: number;
     semester: Semester;
+    facultyId: number;
+    facultyName: string;
     version: number;
     createdAt: string;
     status: TimetableStatus;
@@ -371,6 +373,14 @@ export interface PublicTimetableScheduleResponse {
     lessons: PublicTimetableLessonResponse[];
 }
 
+export interface PublicTimetableFilterOptionsResponse {
+    faculties: PublicFilterOptionResponse[];
+    departments: PublicFilterOptionResponse[];
+    groups: PublicFilterOptionResponse[];
+    teachers: PublicFilterOptionResponse[];
+    rooms: PublicFilterOptionResponse[];
+}
+
 export interface PublicTimetableQuery {
     facultyId?: number;
     departmentId?: number;
@@ -386,6 +396,9 @@ export interface PublicTimetableQuery {
 
 export interface UnplacedLesson {
     assignmentId: number;
+    subjectName?: string | null;
+    teacherName?: string | null;
+    groupNames?: string[];
     reason: string;
 }
 
@@ -397,6 +410,28 @@ export interface GenerationResponse {
     failedVerticesCount: number;
     status: TimetableStatus;
     failedAssignments: UnplacedLesson[];
+}
+
+// ====================== QUICK ACTIONS ======================
+
+export interface QuickActionOptionResponse {
+    id: string;
+    label: string;
+    method: string;
+    pathTemplate: string;
+    group: string;
+}
+
+export interface QuickActionSettingsRequest {
+    autoEnabled: boolean;
+    selectedActionIds: string[];
+}
+
+export interface QuickActionSettingsResponse {
+    autoEnabled: boolean;
+    maxSelected: number;
+    selectedActions: QuickActionOptionResponse[];
+    availableActions: QuickActionOptionResponse[];
 }
 
 // ====================== ERROR ======================

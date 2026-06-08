@@ -8,6 +8,7 @@ export { lessonApi } from "./lessonApi";
 export { lunchApi } from "./lunchApi";
 export { majorApi } from "./majorApi";
 export { publicTimetableApi } from "./publicTimetableApi";
+export { quickActionApi } from "./quickActionApi";
 export { roomApi } from "./roomApi";
 export { subjectApi } from "./subjectApi";
 export { teacherApi } from "./teacherApi";

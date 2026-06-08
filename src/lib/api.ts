@@ -22,7 +22,8 @@ const REFRESH_TOKEN_KEY = "refreshToken";
 export const apiClient = axios.create({
     baseURL: API_BASE_URL,
     headers: { "Content-Type": "application/json" },
-    timeout: 60000,
+    timeout: 300000
+    ,
 });
 
 let refreshPromise: Promise<string> | null = null;

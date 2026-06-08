@@ -1,5 +1,6 @@
 import axios from "axios";
 import type {
+    PublicTimetableFilterOptionsResponse,
     PublicTimetableQuery,
     PublicTimetableScheduleResponse,
 } from "./types";
@@ -26,6 +27,17 @@ function buildPublicTimetableParams(query: PublicTimetableQuery = {}) {
 }
 
 export const publicTimetableApi = {
+    getFilterOptions: async (
+        query: Pick<PublicTimetableQuery, "facultyId" | "departmentId"> = {},
+    ): Promise<PublicTimetableFilterOptionsResponse> => {
+        const params = buildPublicTimetableParams(query);
+        const response = await publicApiClient.get<PublicTimetableFilterOptionsResponse>(
+            `/api/aiu-timetable/filters${params.size ? `?${params}` : ""}`,
+        );
+
+        return response.data;
+    },
+
     getSchedule: async (
         query: PublicTimetableQuery = {},
     ): Promise<PublicTimetableScheduleResponse> => {
