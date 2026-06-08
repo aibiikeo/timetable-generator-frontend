@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Edit, Plus, Search, Trash2 } from "lucide-react";
+import { Edit, Plus, Trash2 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { usePageSearch } from "@/components/layout/SearchContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,10 +14,10 @@ import {
     CardHeader,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-    Degree,
     DepartmentResponse,
     MajorResponse,
     departmentApi,
@@ -24,24 +25,20 @@ import {
     majorApi,
 } from "@/lib";
 
-type SortField = "name" | "shortName" | "degree" | "department";
+type SortField = "name" | "shortName" | "department";
 type SortDirection = "asc" | "desc";
 
 interface FormDataState {
     name: string;
     shortName: string;
-    degree: Degree;
     departmentId: number;
 }
 
 const EMPTY_FORM: FormDataState = {
     name: "",
     shortName: "",
-    degree: "BACHELOR",
     departmentId: 0,
 };
-
-const DEGREES: Degree[] = ["BACHELOR", "MASTER", "SPECIALIST"];
 
 export default function MajorsPage() {
     const [majors, setMajors] = useState<MajorResponse[]>([]);
@@ -50,7 +47,8 @@ export default function MajorsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const [searchQuery, setSearchQuery] = useState("");
+    const { query: searchQuery } = usePageSearch("Search majors on this page...");
+    const [departmentFilter, setDepartmentFilter] = useState("all");
     const [selectedMajors, setSelectedMajors] = useState<number[]>([]);
 
     const [sortField, setSortField] = useState<SortField>("name");
@@ -81,16 +79,21 @@ export default function MajorsPage() {
             return (
                 major.name.toLowerCase().includes(lower) ||
                 major.shortName?.toLowerCase().includes(lower) ||
-                major.degree.toLowerCase().includes(lower) ||
-                major.departmentName?.toLowerCase().includes(lower) ||
-                major.facultyName?.toLowerCase().includes(lower) ||
-                major.id.toString().includes(lower)
+                major.departmentName?.toLowerCase().includes(lower)
             );
         });
     }, [majors, searchQuery]);
 
+    const filteredByDepartment = useMemo(() => {
+        if (departmentFilter === "all") return filteredMajors;
+
+        return filteredMajors.filter(
+            (major) => major.departmentId.toString() === departmentFilter,
+        );
+    }, [departmentFilter, filteredMajors]);
+
     const sortedMajors = useMemo(() => {
-        return [...filteredMajors].sort((a, b) => {
+        return [...filteredByDepartment].sort((a, b) => {
             const direction = sortDirection === "asc" ? 1 : -1;
 
             if (sortField === "department") {
@@ -108,7 +111,7 @@ export default function MajorsPage() {
                 ) * direction
             );
         });
-    }, [departmentMap, filteredMajors, sortDirection, sortField]);
+    }, [departmentMap, filteredByDepartment, sortDirection, sortField]);
 
     const loadData = async (initial = false) => {
         try {
@@ -203,7 +206,6 @@ export default function MajorsPage() {
             await majorApi.createMajor({
                 name: formData.name.trim(),
                 shortName: formData.shortName.trim(),
-                degree: formData.degree,
                 departmentId: Number(formData.departmentId),
             });
 
@@ -228,7 +230,6 @@ export default function MajorsPage() {
             await majorApi.updateMajor(currentMajor.id, {
                 name: formData.name.trim(),
                 shortName: formData.shortName.trim(),
-                degree: formData.degree,
                 departmentId: Number(formData.departmentId),
             });
 
@@ -248,7 +249,6 @@ export default function MajorsPage() {
         setFormData({
             name: major.name,
             shortName: major.shortName,
-            degree: major.degree,
             departmentId: major.departmentId,
         });
 
@@ -336,6 +336,12 @@ export default function MajorsPage() {
         resetForm();
     };
 
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get("create") === "1") {
+            openCreateModal();
+        }
+    }, []);
+
     return (
         <AppShell>
             <PageHeader
@@ -358,14 +364,19 @@ export default function MajorsPage() {
             <Card className="glass-card">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="relative w-full max-w-xl">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search by major, short name, department..."
-                                className="h-11 rounded-xl pl-10 pr-4 shadow-sm"
-                            />
+                        <div className="grid w-full gap-3 md:grid-cols-2 lg:max-w-3xl">
+                            <FilterSelect
+                                value={departmentFilter}
+                                onChange={setDepartmentFilter}
+                                ariaLabel="Filter majors by department"
+                            >
+                                <option value="all">All departments</option>
+                                {departments.map((department) => (
+                                    <option key={department.id} value={department.id}>
+                                        {department.name}
+                                    </option>
+                                ))}
+                            </FilterSelect>
                         </div>
 
                         {selectedMajors.length > 0 && (
@@ -387,13 +398,20 @@ export default function MajorsPage() {
                     ) : sortedMajors.length === 0 ? (
                         <EmptyState
                             title="No majors found"
-                            description="Create a major or change the search query."
+                            description="Create a major or change the current filters."
                             actionLabel="New major"
                             onAction={openCreateModal}
                         />
                     ) : (
                         <div className="custom-scrollbar overflow-x-auto">
-                            <table className="w-full min-w-[950px] text-sm">
+                            <table className="w-full min-w-[860px] table-fixed text-sm">
+                                <colgroup>
+                                    <col className="w-12" />
+                                    <col className="w-[42%]" />
+                                    <col className="w-32" />
+                                    <col />
+                                    <col className="w-28" />
+                                </colgroup>
                                 <thead>
                                 <tr className="border-b text-left">
                                     <th className="w-12 py-3">
@@ -418,14 +436,8 @@ export default function MajorsPage() {
                                     </th>
 
                                     <th className="py-3">
-                                        {getSortLabel("degree", "Degree")}
-                                    </th>
-
-                                    <th className="py-3">
                                         {getSortLabel("department", "Department")}
                                     </th>
-
-                                    <th className="py-3">Faculty</th>
 
                                     <th className="py-3 text-right">
                                         Actions
@@ -465,21 +477,11 @@ export default function MajorsPage() {
                                         </td>
 
                                         <td className="py-4">
-                                            <Badge variant="info">
-                                                {major.degree}
-                                            </Badge>
-                                        </td>
-
-                                        <td className="py-4">
                                             {major.departmentName ||
                                                 departmentMap.get(
                                                     major.departmentId,
                                                 ) ||
                                                 "Unknown"}
-                                        </td>
-
-                                        <td className="py-4">
-                                            {major.facultyName || "-"}
                                         </td>
 
                                         <td className="py-4">
@@ -588,25 +590,6 @@ function MajorModal({
                             placeholder="Example: SE"
                             required
                         />
-                    </div>
-
-                    <div>
-                        <label className="mb-2 block text-sm font-medium">
-                            Degree
-                        </label>
-                        <select
-                            name="degree"
-                            value={formData.degree}
-                            onChange={onChange}
-                            required
-                            className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                            {DEGREES.map((degree) => (
-                                <option key={degree} value={degree}>
-                                    {degree}
-                                </option>
-                            ))}
-                        </select>
                     </div>
 
                     <div>

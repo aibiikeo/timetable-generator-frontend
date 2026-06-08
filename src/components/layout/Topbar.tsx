@@ -19,6 +19,7 @@ import {
     loadCurrentUserByStoredEmail,
 } from "@/lib/authRole";
 import type { UserRole } from "@/lib/types";
+import { usePageSearch } from "@/components/layout/SearchContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,7 @@ interface TopbarProps {
 export function Topbar({ onMenuClick }: TopbarProps) {
     const router = useRouter();
     const { logout } = useAuth();
+    const { query, placeholder, setQuery } = usePageSearch();
 
     const [email, setEmail] = useState<string | null>(null);
     const [role, setRole] = useState<UserRole | null>(null);
@@ -86,8 +88,10 @@ export function Topbar({ onMenuClick }: TopbarProps) {
             <div className="hidden w-full max-w-md items-center gap-2 rounded-xl border border-input bg-card px-3 shadow-sm md:flex">
                 <Search className="h-4 w-4 text-muted-foreground" />
                 <Input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
                     className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                    placeholder="Search teacher, room, subject..."
+                    placeholder={placeholder}
                 />
             </div>
 

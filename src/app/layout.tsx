@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Inter } from "next/font/google";
+import { SearchProvider } from "@/components/layout/SearchContext";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -25,7 +26,7 @@ export default function RootLayout({
     return (
         <html lang="en" suppressHydrationWarning>
         <body className={`${inter.className} bg-background text-foreground antialiased`}>
-        {children}
+        <SearchProvider>{children}</SearchProvider>
         <Toaster />
         </body>
         </html>

@@ -4,12 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
     Edit,
     Plus,
-    Search,
     Trash2,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { usePageSearch } from "@/components/layout/SearchContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,16 +18,21 @@ import {
     CardHeader,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+    DepartmentResponse,
+    FacultyResponse,
     MajorResponse,
     SubjectResponse,
+    departmentApi,
+    facultyApi,
     majorApi,
     subjectApi,
 } from "@/lib";
 
-type SortField = "name" | "code" | "totalHours" | "hoursPerWeek" | "major";
+type SortField = "name" | "code" | "totalHours" | "hoursPerWeek";
 type SortDirection = "asc" | "desc";
 
 interface FormDataState {
@@ -41,7 +46,7 @@ interface FormDataState {
 const EMPTY_FORM: FormDataState = {
     name: "",
     code: "",
-    totalHours: 30,
+    totalHours: 60,
     hoursPerWeek: 4,
     majorId: 0,
 };
@@ -49,11 +54,16 @@ const EMPTY_FORM: FormDataState = {
 export default function SubjectsPage() {
     const [subjects, setSubjects] = useState<SubjectResponse[]>([]);
     const [majors, setMajors] = useState<MajorResponse[]>([]);
+    const [faculties, setFaculties] = useState<FacultyResponse[]>([]);
+    const [departments, setDepartments] = useState<DepartmentResponse[]>([]);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const [searchQuery, setSearchQuery] = useState("");
+    const { query: searchQuery } = usePageSearch("Search subjects on this page...");
+    const [facultyFilter, setFacultyFilter] = useState("all");
+    const [departmentFilter, setDepartmentFilter] = useState("all");
+    const [majorFilter, setMajorFilter] = useState("all");
     const [selectedSubjects, setSelectedSubjects] = useState<number[]>([]);
 
     const [sortField, setSortField] = useState<SortField>("name");
@@ -70,21 +80,6 @@ export default function SubjectsPage() {
         void loadData(true);
     }, []);
 
-    const majorsMap = useMemo(() => {
-        const map = new Map<number, string>();
-
-        majors.forEach((major) => {
-            map.set(
-                major.id,
-                major.shortName
-                    ? `${major.shortName} - ${major.name}`
-                    : major.name,
-            );
-        });
-
-        return map;
-    }, [majors]);
-
     const filteredSubjects = useMemo(() => {
         if (!searchQuery.trim()) return subjects;
 
@@ -95,25 +90,38 @@ export default function SubjectsPage() {
                 subject.name.toLowerCase().includes(lower) ||
                 subject.code.toLowerCase().includes(lower) ||
                 subject.majorName?.toLowerCase().includes(lower) ||
-                subject.departmentName?.toLowerCase().includes(lower) ||
-                subject.facultyName?.toLowerCase().includes(lower) ||
                 subject.totalHours.toString().includes(lower) ||
-                subject.hoursPerWeek.toString().includes(lower) ||
-                subject.id.toString().includes(lower)
+                subject.hoursPerWeek.toString().includes(lower)
             );
         });
     }, [subjects, searchQuery]);
 
+    const filterOptions = useMemo(() => {
+        return {
+            faculties: [...faculties].sort((a, b) => a.name.localeCompare(b.name)),
+            departments: [...departments].sort((a, b) => a.name.localeCompare(b.name)),
+            majors: [...majors].sort((a, b) => a.name.localeCompare(b.name)),
+        };
+    }, [departments, faculties, majors]);
+
+    const filteredByDropdowns = useMemo(() => {
+        return filteredSubjects.filter((subject) => {
+            const matchesFaculty =
+                facultyFilter === "all" ||
+                subject.facultyId.toString() === facultyFilter;
+            const matchesDepartment =
+                departmentFilter === "all" ||
+                subject.departmentId.toString() === departmentFilter;
+            const matchesMajor =
+                majorFilter === "all" || subject.majorId.toString() === majorFilter;
+
+            return matchesFaculty && matchesDepartment && matchesMajor;
+        });
+    }, [departmentFilter, facultyFilter, filteredSubjects, majorFilter]);
+
     const sortedSubjects = useMemo(() => {
-        return [...filteredSubjects].sort((a, b) => {
+        return [...filteredByDropdowns].sort((a, b) => {
             const direction = sortDirection === "asc" ? 1 : -1;
-
-            if (sortField === "major") {
-                const majorA = a.majorName || majorsMap.get(a.majorId) || "";
-                const majorB = b.majorName || majorsMap.get(b.majorId) || "";
-
-                return majorA.localeCompare(majorB) * direction;
-            }
 
             if (sortField === "name" || sortField === "code") {
                 return a[sortField].localeCompare(b[sortField]) * direction;
@@ -121,7 +129,7 @@ export default function SubjectsPage() {
 
             return (Number(a[sortField]) - Number(b[sortField])) * direction;
         });
-    }, [filteredSubjects, sortField, sortDirection, majorsMap]);
+    }, [filteredByDropdowns, sortField, sortDirection]);
 
     const loadData = async (initial = false) => {
         try {
@@ -129,13 +137,17 @@ export default function SubjectsPage() {
 
             setError("");
 
-            const [subjectsData, majorsData] = await Promise.all([
+            const [subjectsData, majorsData, facultiesData, departmentsData] = await Promise.all([
                 subjectApi.getSubjects(),
                 majorApi.getMajors(),
+                facultyApi.getFaculties(),
+                departmentApi.getDepartments(),
             ]);
 
             setSubjects(subjectsData);
             setMajors(majorsData);
+            setFaculties(facultiesData);
+            setDepartments(departmentsData);
         } catch (err) {
             console.error("Error loading subjects:", err);
             setError("Failed to load subjects");
@@ -213,7 +225,7 @@ export default function SubjectsPage() {
         }
 
         if (Number(formData.totalHours) < 1) {
-            setError("Total hours must be at least 1");
+            setError("Semester hours must be at least 1");
             return false;
         }
 
@@ -374,6 +386,12 @@ export default function SubjectsPage() {
         resetForm();
     };
 
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get("create") === "1") {
+            openCreateModal();
+        }
+    }, []);
+
     return (
         <AppShell>
             <PageHeader
@@ -398,16 +416,45 @@ export default function SubjectsPage() {
             <Card className="glass-card">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="relative w-full max-w-xl">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                value={searchQuery}
-                                onChange={(e) =>
-                                    setSearchQuery(e.target.value)
-                                }
-                                placeholder="Search by subject, code, major, department..."
-                                className="h-11 rounded-xl pl-10 pr-4 shadow-sm"
-                            />
+                        <div className="grid w-full gap-3 md:grid-cols-3 lg:max-w-5xl">
+                            <FilterSelect
+                                value={facultyFilter}
+                                onChange={setFacultyFilter}
+                                ariaLabel="Filter subjects by faculty"
+                            >
+                                <option value="all">All faculties</option>
+                                {filterOptions.faculties.map((faculty) => (
+                                    <option key={faculty.id} value={faculty.id}>
+                                        {faculty.name}
+                                    </option>
+                                ))}
+                            </FilterSelect>
+
+                            <FilterSelect
+                                value={departmentFilter}
+                                onChange={setDepartmentFilter}
+                                ariaLabel="Filter subjects by department"
+                            >
+                                <option value="all">All departments</option>
+                                {filterOptions.departments.map((department) => (
+                                    <option key={department.id} value={department.id}>
+                                        {department.name}
+                                    </option>
+                                ))}
+                            </FilterSelect>
+
+                            <FilterSelect
+                                value={majorFilter}
+                                onChange={setMajorFilter}
+                                ariaLabel="Filter subjects by major"
+                            >
+                                <option value="all">All majors</option>
+                                {filterOptions.majors.map((major) => (
+                                    <option key={major.id} value={major.id}>
+                                        {major.shortName || major.name}
+                                    </option>
+                                ))}
+                            </FilterSelect>
                         </div>
 
                         {selectedSubjects.length > 0 && (
@@ -435,13 +482,13 @@ export default function SubjectsPage() {
                     ) : sortedSubjects.length === 0 ? (
                         <EmptyState
                             title="No subjects found"
-                            description="Create a subject or change the search query."
+                            description="Create a subject or change the current filters."
                             actionLabel="New subject"
                             onAction={openCreateModal}
                         />
                     ) : (
                         <div className="custom-scrollbar overflow-x-auto">
-                            <table className="w-full min-w-[900px] text-sm">
+                            <table className="w-full min-w-[760px] text-sm">
                                 <thead>
                                 <tr className="border-b text-left">
                                     <th className="w-12 py-3">
@@ -462,16 +509,13 @@ export default function SubjectsPage() {
                                     <th className="py-3">
                                         {getSortLabel("code", "Code")}
                                     </th>
-                                    <th className="py-3">
-                                        {getSortLabel("major", "Major")}
-                                    </th>
                                     <th className="py-3 text-center">
-                                        {getSortLabel("totalHours", "Total")}
+                                        {getSortLabel("totalHours", "Semester hours")}
                                     </th>
                                     <th className="py-3 text-center">
                                         {getSortLabel(
                                             "hoursPerWeek",
-                                            "Per week",
+                                            "Weekly hours",
                                         )}
                                     </th>
                                     <th className="py-3 text-right">
@@ -511,20 +555,6 @@ export default function SubjectsPage() {
                                             <Badge variant="secondary">
                                                 {subject.code}
                                             </Badge>
-                                        </td>
-
-                                        <td className="py-4">
-                                            <div className="font-medium">
-                                                {subject.majorName ||
-                                                    majorsMap.get(
-                                                        subject.majorId,
-                                                    ) ||
-                                                    "Unknown"}
-                                            </div>
-                                            <div className="text-xs text-muted-foreground">
-                                                {subject.departmentName ||
-                                                    "No department"}
-                                            </div>
                                         </td>
 
                                         <td className="py-4 text-center">
@@ -689,7 +719,7 @@ function SubjectModal({
                     <div className="grid gap-4 sm:grid-cols-2">
                         <div>
                             <label className="mb-2 block text-sm font-medium">
-                                Total hours
+                                Semester hours
                             </label>
                             <Input
                                 type="number"
@@ -703,7 +733,7 @@ function SubjectModal({
 
                         <div>
                             <label className="mb-2 block text-sm font-medium">
-                                Hours per week
+                                Weekly hours
                             </label>
                             <Input
                                 type="number"

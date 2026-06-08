@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Edit, Plus, Search, Trash2 } from "lucide-react";
+import { Edit, Plus, Trash2 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { Badge } from "@/components/ui/badge";
+import { usePageSearch } from "@/components/layout/SearchContext";
 import { Button } from "@/components/ui/button";
 import {
     Card,
@@ -33,7 +33,7 @@ export default function FacultiesPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const [searchQuery, setSearchQuery] = useState("");
+    const { query: searchQuery } = usePageSearch("Search faculties on this page...");
     const [selectedFaculties, setSelectedFaculties] = useState<number[]>([]);
 
     const [sortField, setSortField] = useState<SortField>("name");
@@ -56,10 +56,7 @@ export default function FacultiesPage() {
         const lower = searchQuery.toLowerCase();
 
         return faculties.filter((faculty) => {
-            return (
-                faculty.name.toLowerCase().includes(lower) ||
-                faculty.id.toString().includes(lower)
-            );
+            return faculty.name.toLowerCase().includes(lower);
         });
     }, [faculties, searchQuery]);
 
@@ -273,6 +270,12 @@ export default function FacultiesPage() {
         resetForm();
     };
 
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get("create") === "1") {
+            openCreateModal();
+        }
+    }, []);
+
     return (
         <AppShell>
             <PageHeader
@@ -293,26 +296,16 @@ export default function FacultiesPage() {
             )}
 
             <Card className="glass-card">
-                <CardHeader>
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="relative w-full max-w-xl">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search by faculty name..."
-                                className="h-11 rounded-xl pl-10 pr-4 shadow-sm"
-                            />
-                        </div>
-
-                        {selectedFaculties.length > 0 && (
+                {selectedFaculties.length > 0 && (
+                    <CardHeader>
+                        <div className="flex justify-end">
                             <Button variant="destructive" onClick={handleDeleteSelected}>
                                 <Trash2 className="h-4 w-4" />
                                 Delete selected ({selectedFaculties.length})
                             </Button>
-                        )}
-                    </div>
-                </CardHeader>
+                        </div>
+                    </CardHeader>
+                )}
 
                 <CardContent>
                     {loading ? (
@@ -324,13 +317,13 @@ export default function FacultiesPage() {
                     ) : sortedFaculties.length === 0 ? (
                         <EmptyState
                             title="No faculties found"
-                            description="Create a faculty or change the search query."
+                            description="Create a faculty or change the current filters."
                             actionLabel="New faculty"
                             onAction={openCreateModal}
                         />
                     ) : (
                         <div className="custom-scrollbar overflow-x-auto">
-                            <table className="w-full min-w-[650px] text-sm">
+                            <table className="w-full min-w-[560px] text-sm">
                                 <thead>
                                 <tr className="border-b text-left">
                                     <th className="w-12 py-3">
@@ -348,7 +341,6 @@ export default function FacultiesPage() {
                                     <th className="py-3">
                                         {getSortLabel("name", "Faculty")}
                                     </th>
-                                    <th className="py-3">ID</th>
                                     <th className="py-3 text-right">
                                         Actions
                                     </th>
@@ -378,12 +370,6 @@ export default function FacultiesPage() {
                                             <div className="font-medium">
                                                 {faculty.name}
                                             </div>
-                                        </td>
-
-                                        <td className="py-4">
-                                            <Badge variant="outline">
-                                                #{faculty.id}
-                                            </Badge>
                                         </td>
 
                                         <td className="py-4">

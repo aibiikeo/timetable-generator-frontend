@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Edit, Plus, Search, Trash2 } from "lucide-react";
+import { Edit, Plus, Trash2 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { Badge } from "@/components/ui/badge";
+import { usePageSearch } from "@/components/layout/SearchContext";
 import { Button } from "@/components/ui/button";
 import {
     Card,
@@ -13,6 +13,7 @@ import {
     CardHeader,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -43,7 +44,8 @@ export default function DepartmentsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const [searchQuery, setSearchQuery] = useState("");
+    const { query: searchQuery } = usePageSearch("Search departments on this page...");
+    const [facultyFilter, setFacultyFilter] = useState("all");
     const [selectedDepartments, setSelectedDepartments] = useState<number[]>([]);
 
     const [sortField, setSortField] = useState<SortField>("name");
@@ -75,14 +77,21 @@ export default function DepartmentsPage() {
 
             return (
                 department.name.toLowerCase().includes(lower) ||
-                facultyName.toLowerCase().includes(lower) ||
-                department.id.toString().includes(lower)
+                facultyName.toLowerCase().includes(lower)
             );
         });
     }, [departments, facultyMap, searchQuery]);
 
+    const filteredByFaculty = useMemo(() => {
+        if (facultyFilter === "all") return filteredDepartments;
+
+        return filteredDepartments.filter(
+            (department) => department.facultyId.toString() === facultyFilter,
+        );
+    }, [facultyFilter, filteredDepartments]);
+
     const sortedDepartments = useMemo(() => {
-        return [...filteredDepartments].sort((a, b) => {
+        return [...filteredByFaculty].sort((a, b) => {
             const direction = sortDirection === "asc" ? 1 : -1;
 
             if (sortField === "faculty") {
@@ -94,7 +103,7 @@ export default function DepartmentsPage() {
 
             return a.name.localeCompare(b.name) * direction;
         });
-    }, [filteredDepartments, facultyMap, sortDirection, sortField]);
+    }, [filteredByFaculty, facultyMap, sortDirection, sortField]);
 
     const loadData = async (initial = false) => {
         try {
@@ -313,6 +322,12 @@ export default function DepartmentsPage() {
         resetForm();
     };
 
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get("create") === "1") {
+            openCreateModal();
+        }
+    }, []);
+
     return (
         <AppShell>
             <PageHeader
@@ -335,14 +350,19 @@ export default function DepartmentsPage() {
             <Card className="glass-card">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="relative w-full max-w-xl">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search by department or faculty..."
-                                className="h-11 rounded-xl pl-10 pr-4 shadow-sm"
-                            />
+                        <div className="grid w-full gap-3 md:grid-cols-2 lg:max-w-3xl">
+                            <FilterSelect
+                                value={facultyFilter}
+                                onChange={setFacultyFilter}
+                                ariaLabel="Filter departments by faculty"
+                            >
+                                <option value="all">All faculties</option>
+                                {faculties.map((faculty) => (
+                                    <option key={faculty.id} value={faculty.id}>
+                                        {faculty.name}
+                                    </option>
+                                ))}
+                            </FilterSelect>
                         </div>
 
                         {selectedDepartments.length > 0 && (
@@ -364,13 +384,13 @@ export default function DepartmentsPage() {
                     ) : sortedDepartments.length === 0 ? (
                         <EmptyState
                             title="No departments found"
-                            description="Create a department or change the search query."
+                            description="Create a department or change the current filters."
                             actionLabel="New department"
                             onAction={openCreateModal}
                         />
                     ) : (
                         <div className="custom-scrollbar overflow-x-auto">
-                            <table className="w-full min-w-[850px] text-sm">
+                            <table className="w-full min-w-[720px] text-sm">
                                 <thead>
                                 <tr className="border-b text-left">
                                     <th className="w-12 py-3">
@@ -391,7 +411,6 @@ export default function DepartmentsPage() {
                                     <th className="py-3">
                                         {getSortLabel("faculty", "Faculty")}
                                     </th>
-                                    <th className="py-3">ID</th>
                                     <th className="py-3 text-right">
                                         Actions
                                     </th>
@@ -427,12 +446,6 @@ export default function DepartmentsPage() {
                                             {department.facultyName ||
                                                 facultyMap.get(department.facultyId) ||
                                                 "Unknown"}
-                                        </td>
-
-                                        <td className="py-4">
-                                            <Badge variant="outline">
-                                                #{department.id}
-                                            </Badge>
                                         </td>
 
                                         <td className="py-4">

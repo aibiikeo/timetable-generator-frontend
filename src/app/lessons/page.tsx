@@ -6,12 +6,12 @@ import {
     CalendarClock,
     Edit,
     Plus,
-    Search,
     Trash2,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { usePageSearch } from "@/components/layout/SearchContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +21,7 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -89,8 +90,9 @@ export default function LessonsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const [searchQuery, setSearchQuery] = useState("");
+    const { query: searchQuery } = usePageSearch("Search lessons on this page...");
     const [selectedDay, setSelectedDay] = useState<DayOfWeek | "ALL">("ALL");
+    const [selectedRoom, setSelectedRoom] = useState("all");
     const [selectedLessons, setSelectedLessons] = useState<number[]>([]);
 
     const [sortField, setSortField] = useState<SortField>("dayOfWeek");
@@ -120,10 +122,12 @@ export default function LessonsPage() {
 
             const matchesDay =
                 selectedDay === "ALL" || lesson.dayOfWeek === selectedDay;
+            const matchesRoom =
+                selectedRoom === "all" || lesson.roomName === selectedRoom;
 
-            return matchesSearch && matchesDay;
+            return matchesSearch && matchesDay && matchesRoom;
         });
-    }, [lessons, searchQuery, selectedDay]);
+    }, [lessons, searchQuery, selectedDay, selectedRoom]);
 
     const sortedLessons = useMemo(() => {
         return [...filteredLessons].sort((a, b) => {
@@ -510,23 +514,13 @@ export default function LessonsPage() {
             <Card className="glass-card mt-6">
                 <CardHeader>
                     <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                        <div className="relative w-full max-w-xl">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search by subject, teacher, room, group..."
-                                className="h-11 rounded-xl pl-10 pr-4 shadow-sm"
-                            />
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                            <select
+                        <div className="grid w-full gap-3 md:grid-cols-2 lg:max-w-3xl">
+                            <FilterSelect
                                 value={selectedDay}
-                                onChange={(e) =>
-                                    setSelectedDay(e.target.value as DayOfWeek | "ALL")
+                                onChange={(value) =>
+                                    setSelectedDay(value as DayOfWeek | "ALL")
                                 }
-                                className="h-11 rounded-xl border border-input bg-card px-3 text-sm shadow-sm"
+                                ariaLabel="Filter lessons by day"
                             >
                                 <option value="ALL">All days</option>
                                 {DAYS.map((day) => (
@@ -534,8 +528,23 @@ export default function LessonsPage() {
                                         {day}
                                     </option>
                                 ))}
-                            </select>
+                            </FilterSelect>
 
+                            <FilterSelect
+                                value={selectedRoom}
+                                onChange={setSelectedRoom}
+                                ariaLabel="Filter lessons by room"
+                            >
+                                <option value="all">All rooms</option>
+                                {rooms.map((room) => (
+                                    <option key={room.id} value={room.name}>
+                                        {room.name}
+                                    </option>
+                                ))}
+                            </FilterSelect>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
                             {selectedLessons.length > 0 && (
                                 <Button variant="destructive" onClick={handleDeleteSelected}>
                                     <Trash2 className="h-4 w-4" />

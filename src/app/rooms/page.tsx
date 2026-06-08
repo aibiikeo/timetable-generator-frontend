@@ -4,12 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
     Edit,
     Plus,
-    Search,
     Trash2,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { usePageSearch } from "@/components/layout/SearchContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,7 @@ import {
     CardHeader,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -49,7 +50,8 @@ export default function RoomsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const [searchQuery, setSearchQuery] = useState("");
+    const { query: searchQuery } = usePageSearch("Search rooms on this page...");
+    const [typeFilter, setTypeFilter] = useState("all");
     const [selectedRooms, setSelectedRooms] = useState<number[]>([]);
 
     const [sortField, setSortField] = useState<SortField>("name");
@@ -74,14 +76,19 @@ export default function RoomsPage() {
             return (
                 room.name.toLowerCase().includes(lower) ||
                 room.type.toLowerCase().includes(lower) ||
-                room.capacity.toString().includes(lower) ||
-                room.id.toString().includes(lower)
+                room.capacity.toString().includes(lower)
             );
         });
     }, [rooms, searchQuery]);
 
+    const filteredByType = useMemo(() => {
+        if (typeFilter === "all") return filteredRooms;
+
+        return filteredRooms.filter((room) => room.type === typeFilter);
+    }, [filteredRooms, typeFilter]);
+
     const sortedRooms = useMemo(() => {
-        return [...filteredRooms].sort((a, b) => {
+        return [...filteredByType].sort((a, b) => {
             const direction = sortDirection === "asc" ? 1 : -1;
 
             if (sortField === "capacity") {
@@ -90,7 +97,7 @@ export default function RoomsPage() {
 
             return String(a[sortField]).localeCompare(String(b[sortField])) * direction;
         });
-    }, [filteredRooms, sortField, sortDirection]);
+    }, [filteredByType, sortField, sortDirection]);
 
     const loadData = async (initial = false) => {
         try {
@@ -315,6 +322,12 @@ export default function RoomsPage() {
         resetForm();
     };
 
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get("create") === "1") {
+            openCreateModal();
+        }
+    }, []);
+
     return (
         <AppShell>
             <PageHeader
@@ -337,14 +350,19 @@ export default function RoomsPage() {
             <Card className="glass-card">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="relative w-full max-w-xl">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search by room, type, capacity..."
-                                className="h-11 rounded-xl pl-10 pr-4 shadow-sm"
-                            />
+                        <div className="grid w-full gap-3 md:grid-cols-2 lg:max-w-3xl">
+                            <FilterSelect
+                                value={typeFilter}
+                                onChange={setTypeFilter}
+                                ariaLabel="Filter rooms by type"
+                            >
+                                <option value="all">All room types</option>
+                                {ROOM_TYPES.map((type) => (
+                                    <option key={type} value={type}>
+                                        {type}
+                                    </option>
+                                ))}
+                            </FilterSelect>
                         </div>
 
                         {selectedRooms.length > 0 && (
@@ -366,13 +384,13 @@ export default function RoomsPage() {
                     ) : sortedRooms.length === 0 ? (
                         <EmptyState
                             title="No rooms found"
-                            description="Create a room or change the search query."
+                            description="Create a room or change the current filters."
                             actionLabel="New room"
                             onAction={openCreateModal}
                         />
                     ) : (
                         <div className="custom-scrollbar overflow-x-auto">
-                            <table className="w-full min-w-[850px] text-sm">
+                            <table className="w-full min-w-[720px] text-sm">
                                 <thead>
                                 <tr className="border-b text-left">
                                     <th className="w-12 py-3">
@@ -399,8 +417,6 @@ export default function RoomsPage() {
                                     <th className="py-3">
                                         {getSortLabel("type", "Type")}
                                     </th>
-
-                                    <th className="py-3">ID</th>
 
                                     <th className="py-3 text-right">
                                         Actions
@@ -436,12 +452,6 @@ export default function RoomsPage() {
                                         <td className="py-4">
                                             <Badge variant="secondary">
                                                 {room.type}
-                                            </Badge>
-                                        </td>
-
-                                        <td className="py-4">
-                                            <Badge variant="outline">
-                                                #{room.id}
                                             </Badge>
                                         </td>
 

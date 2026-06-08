@@ -5,12 +5,12 @@ import {
     Edit,
     Layers3,
     Plus,
-    Search,
     Trash2,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { usePageSearch } from "@/components/layout/SearchContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,10 +19,16 @@ import {
     CardHeader,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     DeleteMode,
+    DepartmentResponse,
+    Degree,
+    FacultyResponse,
+    departmentApi,
+    facultyApi,
     getApiErrorMessage,
     groupApi,
     majorApi,
@@ -30,12 +36,13 @@ import {
     StudyGroupResponse,
 } from "@/lib";
 
-type SortField = "name" | "major" | "course" | "studentCount";
+type SortField = "name" | "major" | "degree" | "course" | "studentCount";
 type SortDirection = "asc" | "desc";
 
 interface FormDataState {
     name: string;
     majorId: number;
+    degree: Degree;
     course: number | string;
     studentCount: number | string;
 }
@@ -43,18 +50,45 @@ interface FormDataState {
 const EMPTY_FORM: FormDataState = {
     name: "",
     majorId: 0,
+    degree: "BACHELOR",
     course: 1,
     studentCount: 25,
 };
 
+const DEGREES: Degree[] = ["BACHELOR", "MASTER", "PHD", "SPECIALIST"];
+
+function groupDegreeLabel(degree: Degree) {
+    return degree === "PHD" ? "PhD" : degree;
+}
+
+function getDegreeBadgeClass(degree: Degree) {
+    switch (degree) {
+        case "BACHELOR":
+            return "border-emerald-200 bg-emerald-50 text-emerald-700";
+        case "MASTER":
+            return "border-violet-200 bg-violet-50 text-violet-700";
+        case "PHD":
+            return "border-amber-200 bg-amber-50 text-amber-800";
+        case "SPECIALIST":
+            return "border-sky-200 bg-sky-50 text-sky-700";
+        default:
+            return "";
+    }
+}
+
 export default function GroupsPage() {
     const [groups, setGroups] = useState<StudyGroupResponse[]>([]);
     const [majors, setMajors] = useState<MajorResponse[]>([]);
+    const [faculties, setFaculties] = useState<FacultyResponse[]>([]);
+    const [departments, setDepartments] = useState<DepartmentResponse[]>([]);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const [searchQuery, setSearchQuery] = useState("");
+    const { query: searchQuery } = usePageSearch("Search groups on this page...");
+    const [facultyFilter, setFacultyFilter] = useState("all");
+    const [departmentFilter, setDepartmentFilter] = useState("all");
+    const [majorFilter, setMajorFilter] = useState("all");
     const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
 
     const [sortField, setSortField] = useState<SortField>("name");
@@ -90,20 +124,44 @@ export default function GroupsPage() {
         const lower = searchQuery.toLowerCase();
 
         return groups.filter((group) => {
+            const majorLabel = majorsMap.get(group.majorId) || "";
+
             return (
                 group.name.toLowerCase().includes(lower) ||
-                group.id.toString().includes(lower) ||
                 group.course.toString().includes(lower) ||
                 group.studentCount.toString().includes(lower) ||
+                group.degree.toLowerCase().includes(lower) ||
+                groupDegreeLabel(group.degree).toLowerCase().includes(lower) ||
                 group.majorName?.toLowerCase().includes(lower) ||
-                group.departmentName?.toLowerCase().includes(lower) ||
-                group.facultyName?.toLowerCase().includes(lower)
+                majorLabel.toLowerCase().includes(lower)
             );
         });
-    }, [groups, searchQuery]);
+    }, [groups, majorsMap, searchQuery]);
+
+    const filterOptions = useMemo(() => {
+        return {
+            faculties: [...faculties].sort((a, b) => a.name.localeCompare(b.name)),
+            departments: [...departments].sort((a, b) => a.name.localeCompare(b.name)),
+            majors: [...majors].sort((a, b) => a.name.localeCompare(b.name)),
+        };
+    }, [departments, faculties, majors]);
+
+    const filteredByDropdowns = useMemo(() => {
+        return filteredGroups.filter((group) => {
+            const matchesFaculty =
+                facultyFilter === "all" || group.facultyId.toString() === facultyFilter;
+            const matchesDepartment =
+                departmentFilter === "all" ||
+                group.departmentId.toString() === departmentFilter;
+            const matchesMajor =
+                majorFilter === "all" || group.majorId.toString() === majorFilter;
+
+            return matchesFaculty && matchesDepartment && matchesMajor;
+        });
+    }, [departmentFilter, facultyFilter, filteredGroups, majorFilter]);
 
     const sortedGroups = useMemo(() => {
-        return [...filteredGroups].sort((a, b) => {
+        return [...filteredByDropdowns].sort((a, b) => {
             const direction = sortDirection === "asc" ? 1 : -1;
 
             if (sortField === "name") {
@@ -117,13 +175,17 @@ export default function GroupsPage() {
                 return majorA.localeCompare(majorB) * direction;
             }
 
+            if (sortField === "degree") {
+                return groupDegreeLabel(a.degree).localeCompare(groupDegreeLabel(b.degree)) * direction;
+            }
+
             if (sortField === "course") {
                 return (a.course - b.course) * direction;
             }
 
             return (a.studentCount - b.studentCount) * direction;
         });
-    }, [filteredGroups, sortField, sortDirection, majorsMap]);
+    }, [filteredByDropdowns, sortField, sortDirection, majorsMap]);
 
     const loadData = async (initial = false) => {
         try {
@@ -131,13 +193,17 @@ export default function GroupsPage() {
 
             setError("");
 
-            const [groupsData, majorsData] = await Promise.all([
+            const [groupsData, majorsData, facultiesData, departmentsData] = await Promise.all([
                 groupApi.getGroups(),
                 majorApi.getMajors(),
+                facultyApi.getFaculties(),
+                departmentApi.getDepartments(),
             ]);
 
             setGroups(groupsData);
             setMajors(majorsData);
+            setFaculties(facultiesData);
+            setDepartments(departmentsData);
         } catch (err) {
             setError(getApiErrorMessage(err, "Failed to load study groups"));
         } finally {
@@ -230,6 +296,7 @@ export default function GroupsPage() {
             await groupApi.createGroup({
                 name: formData.name.trim(),
                 majorId: formData.majorId,
+                degree: formData.degree,
                 course: Number(formData.course),
                 studentCount: Number(formData.studentCount),
             });
@@ -255,6 +322,7 @@ export default function GroupsPage() {
             await groupApi.updateGroup(currentGroup.id, {
                 name: formData.name.trim(),
                 majorId: formData.majorId,
+                degree: formData.degree,
                 course: Number(formData.course),
                 studentCount: Number(formData.studentCount),
             });
@@ -275,6 +343,7 @@ export default function GroupsPage() {
         setFormData({
             name: group.name,
             majorId: group.majorId,
+            degree: group.degree,
             course: group.course,
             studentCount: group.studentCount,
         });
@@ -370,6 +439,12 @@ export default function GroupsPage() {
         resetForm();
     };
 
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get("create") === "1") {
+            openCreateModal();
+        }
+    }, []);
+
     return (
         <AppShell>
             <PageHeader
@@ -392,14 +467,45 @@ export default function GroupsPage() {
             <Card className="glass-card">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="relative w-full max-w-xl">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search by group, major, department..."
-                                className="h-11 rounded-xl pl-10 pr-4 shadow-sm"
-                            />
+                        <div className="grid w-full gap-3 md:grid-cols-3 lg:max-w-5xl">
+                            <FilterSelect
+                                value={facultyFilter}
+                                onChange={setFacultyFilter}
+                                ariaLabel="Filter groups by faculty"
+                            >
+                                <option value="all">All faculties</option>
+                                {filterOptions.faculties.map((faculty) => (
+                                    <option key={faculty.id} value={faculty.id}>
+                                        {faculty.name}
+                                    </option>
+                                ))}
+                            </FilterSelect>
+
+                            <FilterSelect
+                                value={departmentFilter}
+                                onChange={setDepartmentFilter}
+                                ariaLabel="Filter groups by department"
+                            >
+                                <option value="all">All departments</option>
+                                {filterOptions.departments.map((department) => (
+                                    <option key={department.id} value={department.id}>
+                                        {department.name}
+                                    </option>
+                                ))}
+                            </FilterSelect>
+
+                            <FilterSelect
+                                value={majorFilter}
+                                onChange={setMajorFilter}
+                                ariaLabel="Filter groups by major"
+                            >
+                                <option value="all">All majors</option>
+                                {filterOptions.majors.map((major) => (
+                                    <option key={major.id} value={major.id}>
+                                        {major.shortName || major.name}
+                                    </option>
+                                ))}
+                            </FilterSelect>
                         </div>
 
                         {selectedGroups.length > 0 && (
@@ -421,7 +527,7 @@ export default function GroupsPage() {
                     ) : sortedGroups.length === 0 ? (
                         <EmptyState
                             title="No study groups found"
-                            description="Create a study group or change the search query."
+                            description="Create a study group or change the current filters."
                             icon={<Layers3 className="h-7 w-7" />}
                             actionLabel="New group"
                             onAction={openCreateModal}
@@ -448,6 +554,9 @@ export default function GroupsPage() {
                                     </th>
                                     <th className="py-3">
                                         {getSortLabel("major", "Major")}
+                                    </th>
+                                    <th className="py-3">
+                                        {getSortLabel("degree", "Degree")}
                                     </th>
                                     <th className="py-3 text-center">
                                         {getSortLabel("course", "Course")}
@@ -491,10 +600,15 @@ export default function GroupsPage() {
                                                     ) ||
                                                     "Unknown"}
                                             </div>
-                                            <div className="text-xs text-muted-foreground">
-                                                {group.departmentName ||
-                                                    "No department"}
-                                            </div>
+                                        </td>
+
+                                        <td className="py-4">
+                                            <Badge
+                                                variant="outline"
+                                                className={getDegreeBadgeClass(group.degree)}
+                                            >
+                                                {groupDegreeLabel(group.degree)}
+                                            </Badge>
                                         </td>
 
                                         <td className="py-4 text-center">
@@ -618,6 +732,25 @@ function GroupModal({
                                     {major.shortName
                                         ? `${major.shortName} - ${major.name}`
                                         : major.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="mb-2 block text-sm font-medium">
+                            Degree *
+                        </label>
+                        <select
+                            name="degree"
+                            value={formData.degree}
+                            onChange={onChange}
+                            className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            required
+                        >
+                            {DEGREES.map((degree) => (
+                                <option key={degree} value={degree}>
+                                    {groupDegreeLabel(degree)}
                                 </option>
                             ))}
                         </select>

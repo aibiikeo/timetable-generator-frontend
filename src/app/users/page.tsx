@@ -6,12 +6,12 @@ import {
     Edit,
     Loader2,
     Plus,
-    Search,
     Trash2,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { usePageSearch } from "@/components/layout/SearchContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +20,7 @@ import {
     CardHeader,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getStoredUserRole, loadCurrentUserByStoredEmail } from "@/lib/authRole";
@@ -143,7 +144,8 @@ export default function UsersPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const [searchQuery, setSearchQuery] = useState("");
+    const { query: searchQuery } = usePageSearch("Search users on this page...");
+    const [roleFilter, setRoleFilter] = useState("all");
     const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
 
     const [sortField, setSortField] = useState<SortField>("email");
@@ -167,14 +169,19 @@ export default function UsersPage() {
         return users.filter((user) => {
             return (
                 user.email.toLowerCase().includes(lower) ||
-                user.role.toLowerCase().includes(lower) ||
-                user.id.toString().includes(lower)
+                user.role.toLowerCase().includes(lower)
             );
         });
     }, [users, searchQuery]);
 
+    const filteredByRole = useMemo(() => {
+        if (roleFilter === "all") return filteredUsers;
+
+        return filteredUsers.filter((user) => user.role === roleFilter);
+    }, [filteredUsers, roleFilter]);
+
     const sortedUsers = useMemo(() => {
-        return [...filteredUsers].sort((a, b) => {
+        return [...filteredByRole].sort((a, b) => {
             const direction = sortDirection === "asc" ? 1 : -1;
 
             return (
@@ -182,7 +189,7 @@ export default function UsersPage() {
                 direction
             );
         });
-    }, [filteredUsers, sortField, sortDirection]);
+    }, [filteredByRole, sortField, sortDirection]);
 
     const loadData = async (initial = false) => {
         try {
@@ -487,16 +494,19 @@ export default function UsersPage() {
                     <Card className="glass-card">
                         <CardHeader>
                             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                                <div className="relative w-full max-w-xl">
-                                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                    <Input
-                                        value={searchQuery}
-                                        onChange={(e) =>
-                                            setSearchQuery(e.target.value)
-                                        }
-                                        placeholder="Search by email, role or ID..."
-                                        className="h-11 rounded-xl pl-10 pr-4 shadow-sm"
-                                    />
+                                <div className="grid w-full gap-3 md:grid-cols-2 lg:max-w-3xl">
+                                    <FilterSelect
+                                        value={roleFilter}
+                                        onChange={setRoleFilter}
+                                        ariaLabel="Filter users by role"
+                                    >
+                                        <option value="all">All roles</option>
+                                        {USER_ROLES.map((role) => (
+                                            <option key={role} value={role}>
+                                                {role}
+                                            </option>
+                                        ))}
+                                    </FilterSelect>
                                 </div>
 
                                 {selectedUsers.length > 0 && (
@@ -526,13 +536,13 @@ export default function UsersPage() {
                             ) : sortedUsers.length === 0 ? (
                                 <EmptyState
                                     title="No users found"
-                                    description="Create a user or change the search query."
+                                    description="Create a user or change the current filters."
                                     actionLabel="New user"
                                     onAction={openCreateModal}
                                 />
                             ) : (
                                 <div className="custom-scrollbar overflow-x-auto">
-                                    <table className="w-full min-w-[850px] text-sm">
+                                    <table className="w-full min-w-[720px] text-sm">
                                         <thead>
                                         <tr className="border-b text-left">
                                             <th className="w-12 py-3">
@@ -553,7 +563,6 @@ export default function UsersPage() {
                                             <th className="py-3">
                                                 {getSortLabel("role", "Role")}
                                             </th>
-                                            <th className="py-3">ID</th>
                                             <th className="py-3 text-right">
                                                 Actions
                                             </th>
@@ -597,12 +606,6 @@ export default function UsersPage() {
                                                         }
                                                     >
                                                         {user.role}
-                                                    </Badge>
-                                                </td>
-
-                                                <td className="py-4">
-                                                    <Badge variant="outline">
-                                                        #{user.id}
                                                     </Badge>
                                                 </td>
 

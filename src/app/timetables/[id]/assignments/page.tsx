@@ -7,12 +7,12 @@ import {
     ClipboardList,
     Edit,
     Plus,
-    Search,
     Trash2,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { usePageSearch } from "@/components/layout/SearchContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,7 +22,7 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Input } from "@/components/ui/input";
+import { FilterSelect } from "@/components/ui/filter-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     assignmentApi,
@@ -127,7 +127,9 @@ export default function AssignmentsPage({
     const [error, setError] = useState("");
     const [successMessage, setSuccessMessage] = useState("");
 
-    const [searchQuery, setSearchQuery] = useState("");
+    const { query: searchQuery } = usePageSearch("Search assignments on this page...");
+    const [statusFilter, setStatusFilter] = useState("all");
+    const [teacherFilter, setTeacherFilter] = useState("all");
     const [selectedAssignments, setSelectedAssignments] = useState<number[]>([]);
 
     const [sortField, setSortField] = useState<SortField>("subjectName");
@@ -159,14 +161,25 @@ export default function AssignmentsPage({
                 assignment.placementStatus?.toLowerCase().includes(lower) ||
                 assignment.groupNames?.some((group) =>
                     group.toLowerCase().includes(lower),
-                ) ||
-                assignment.id.toString().includes(lower)
+                )
             );
         });
     }, [assignments, searchQuery]);
 
+    const filteredByDropdowns = useMemo(() => {
+        return filteredAssignments.filter((assignment) => {
+            const matchesStatus =
+                statusFilter === "all" || assignment.placementStatus === statusFilter;
+            const matchesTeacher =
+                teacherFilter === "all" ||
+                assignment.teacherId.toString() === teacherFilter;
+
+            return matchesStatus && matchesTeacher;
+        });
+    }, [filteredAssignments, statusFilter, teacherFilter]);
+
     const sortedAssignments = useMemo(() => {
-        return [...filteredAssignments].sort((a, b) => {
+        return [...filteredByDropdowns].sort((a, b) => {
             const direction = sortDirection === "asc" ? 1 : -1;
 
             return (
@@ -175,7 +188,7 @@ export default function AssignmentsPage({
                 ) * direction
             );
         });
-    }, [filteredAssignments, sortField, sortDirection]);
+    }, [filteredByDropdowns, sortField, sortDirection]);
 
     const scheduledCount = useMemo(() => {
         return assignments.filter(
@@ -279,6 +292,12 @@ export default function AssignmentsPage({
         setEditingAssignment(null);
         setSaving(false);
     };
+
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get("create") === "1") {
+            openCreateForm();
+        }
+    }, []);
 
     const handleSaveAssignment = async (data: AssignmentRequest) => {
         try {
@@ -500,16 +519,32 @@ export default function AssignmentsPage({
             <Card className="glass-card mt-6">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="relative w-full max-w-xl">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                value={searchQuery}
-                                onChange={(e) =>
-                                    setSearchQuery(e.target.value)
-                                }
-                                placeholder="Search by subject, teacher, group, status..."
-                                className="h-11 rounded-xl pl-10 pr-4 shadow-sm"
-                            />
+                        <div className="grid w-full gap-3 md:grid-cols-2 lg:max-w-3xl">
+                            <FilterSelect
+                                value={statusFilter}
+                                onChange={setStatusFilter}
+                                ariaLabel="Filter assignments by status"
+                            >
+                                <option value="all">All statuses</option>
+                                {["PENDING", "SCHEDULED", "PARTIAL", "FAILED"].map((status) => (
+                                    <option key={status} value={status}>
+                                        {status}
+                                    </option>
+                                ))}
+                            </FilterSelect>
+
+                            <FilterSelect
+                                value={teacherFilter}
+                                onChange={setTeacherFilter}
+                                ariaLabel="Filter assignments by teacher"
+                            >
+                                <option value="all">All teachers</option>
+                                {teachers.map((teacher) => (
+                                    <option key={teacher.id} value={teacher.id}>
+                                        {teacher.fullName}
+                                    </option>
+                                ))}
+                            </FilterSelect>
                         </div>
 
                         {selectedAssignments.length > 0 && (

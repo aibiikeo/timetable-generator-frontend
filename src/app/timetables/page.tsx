@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Archive, Eye, Plus, Search, Trash2 } from "lucide-react";
+import { Archive, Eye, Plus, Trash2 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { usePageSearch } from "@/components/layout/SearchContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,11 +16,13 @@ import {
 } from "@/components/ui/card";
 import { DeleteModeDialog } from "@/components/ui/delete-mode-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
+import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { timetableApi } from "@/lib";
+import { facultyApi, timetableApi } from "@/lib";
 import type {
     DeleteMode,
+    FacultyResponse,
     Semester,
     TimetableResponse,
     TimetableStatus,
@@ -32,15 +35,18 @@ interface FormDataState {
     name: string;
     academicYearStart: number;
     semester: Semester;
+    facultyId: number;
 }
 
 const EMPTY_FORM: FormDataState = {
     name: "",
     academicYearStart: new Date().getFullYear(),
     semester: "FALL",
+    facultyId: 0,
 };
 
 const SEMESTERS: Semester[] = ["FALL", "SPRING"];
+const DEFAULT_TIMETABLE_FACULTY_NAME = "Faculty of Engineering and Informatics";
 
 function getApiErrorMessage(error: unknown, fallback: string) {
     if (
@@ -85,10 +91,12 @@ function getDisplayTimetableName(name: string) {
 
 export default function TimetablesPage() {
     const [timetables, setTimetables] = useState<TimetableResponse[]>([]);
+    const [faculties, setFaculties] = useState<FacultyResponse[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-    const [searchQuery, setSearchQuery] = useState("");
+    const { query: searchQuery } = usePageSearch("Search timetables on this page...");
+    const [facultyFilter, setFacultyFilter] = useState("");
     const [selectedTimetables, setSelectedTimetables] = useState<number[]>([]);
 
     const [sortField, setSortField] = useState<SortField>("createdAt");
@@ -112,17 +120,28 @@ export default function TimetablesPage() {
         return timetables.filter((timetable) => {
             return (
                 timetable.name.toLowerCase().includes(lower) ||
+                (timetable.facultyName ?? "").toLowerCase().includes(lower) ||
                 timetable.status.toLowerCase().includes(lower) ||
                 timetable.semester.toLowerCase().includes(lower) ||
                 timetable.academicYearStart.toString().includes(lower) ||
-                timetable.academicYearEnd.toString().includes(lower) ||
-                timetable.id.toString().includes(lower)
+                timetable.academicYearEnd.toString().includes(lower)
             );
         });
     }, [timetables, searchQuery]);
 
+    const filteredByDropdowns = useMemo(() => {
+        return filteredTimetables.filter((timetable) => {
+            const matchesFaculty =
+                facultyFilter !== "" &&
+                timetable.facultyId != null &&
+                timetable.facultyId.toString() === facultyFilter;
+
+            return matchesFaculty;
+        });
+    }, [facultyFilter, filteredTimetables]);
+
     const sortedTimetables = useMemo(() => {
-        return [...filteredTimetables].sort((a, b) => {
+        return [...filteredByDropdowns].sort((a, b) => {
             const direction = sortDirection === "asc" ? 1 : -1;
 
             if (sortField === "createdAt") {
@@ -142,7 +161,7 @@ export default function TimetablesPage() {
                 direction
             );
         });
-    }, [filteredTimetables, sortField, sortDirection]);
+    }, [filteredByDropdowns, sortField, sortDirection]);
 
     const loadData = async (initial = false) => {
         try {
@@ -150,10 +169,44 @@ export default function TimetablesPage() {
 
             setError("");
 
-            const data = await timetableApi.getAllTimetables();
-            setTimetables(data);
+            const [timetableResult, facultyResult] = await Promise.allSettled([
+                timetableApi.getAllTimetables(),
+                facultyApi.getFaculties(),
+            ]);
+
+            let facultyData: FacultyResponse[] = [];
+            if (facultyResult.status === "fulfilled") {
+                facultyData = facultyResult.value;
+                setFaculties(facultyData);
+            } else {
+                setFaculties([]);
+                setError("Failed to load faculties");
+            }
+
+            if (timetableResult.status === "fulfilled") {
+                const engineeringFaculty = facultyData.find(
+                    (faculty) => faculty.name === DEFAULT_TIMETABLE_FACULTY_NAME,
+                );
+
+                setTimetables(
+                    timetableResult.value.map((timetable) => {
+                        if (timetable.facultyId != null || !engineeringFaculty) {
+                            return timetable;
+                        }
+
+                        return {
+                            ...timetable,
+                            facultyId: engineeringFaculty.id,
+                            facultyName: engineeringFaculty.name,
+                        };
+                    }),
+                );
+            } else {
+                setTimetables([]);
+                setError("Failed to load timetables");
+            }
         } catch {
-            setError("Failed to load timetables");
+            setError("Failed to load data");
         } finally {
             if (initial) setLoading(false);
         }
@@ -238,6 +291,11 @@ export default function TimetablesPage() {
             return false;
         }
 
+        if (!formData.facultyId) {
+            setFormError("Please select a faculty");
+            return false;
+        }
+
         return true;
     };
 
@@ -254,6 +312,7 @@ export default function TimetablesPage() {
                 name: formData.name.trim(),
                 academicYearStart: Number(formData.academicYearStart),
                 semester: formData.semester,
+                facultyId: Number(formData.facultyId),
                 generationSettings: {
                     avoidSaturday: true,
                     avoidLateLessons: true,
@@ -358,6 +417,12 @@ export default function TimetablesPage() {
         resetForm();
     };
 
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).get("create") === "1") {
+            openCreateModal();
+        }
+    }, []);
+
     return (
         <AppShell>
             <PageHeader
@@ -388,16 +453,19 @@ export default function TimetablesPage() {
             <Card className="glass-card mt-6">
                 <CardHeader>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="relative w-full max-w-xl">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                value={searchQuery}
-                                onChange={(e) =>
-                                    setSearchQuery(e.target.value)
-                                }
-                                placeholder="Search by name, year, semester, status..."
-                                className="h-11 rounded-xl pl-10 pr-4 shadow-sm"
-                            />
+                        <div className="grid w-full gap-3 md:max-w-[474px]">
+                            <FilterSelect
+                                value={facultyFilter}
+                                onChange={setFacultyFilter}
+                                ariaLabel="Filter timetables by faculty"
+                            >
+                                <option value="">Choose faculty</option>
+                                {faculties.map((faculty) => (
+                                    <option key={faculty.id} value={faculty.id}>
+                                        {faculty.name}
+                                    </option>
+                                ))}
+                            </FilterSelect>
                         </div>
 
                         {selectedTimetables.length > 0 && (
@@ -431,7 +499,7 @@ export default function TimetablesPage() {
                         />
                     ) : (
                         <div className="custom-scrollbar overflow-x-auto">
-                            <table className="w-full min-w-[920px] text-sm">
+                            <table className="w-full min-w-[1040px] text-sm">
                                 <thead>
                                 <tr className="border-b text-left">
                                     <th className="w-12 py-3">
@@ -449,6 +517,7 @@ export default function TimetablesPage() {
                                     <th className="py-3">
                                         {getSortLabel("name", "Name")}
                                     </th>
+                                    <th className="py-3">Faculty</th>
                                     <th className="py-3">
                                         {getSortLabel(
                                             "academicYearStart",
@@ -496,6 +565,10 @@ export default function TimetablesPage() {
                                             <div className="font-medium">
                                                 {getDisplayTimetableName(timetable.name)}
                                             </div>
+                                        </td>
+
+                                        <td className="py-4">
+                                            {timetable.facultyName || "-"}
                                         </td>
 
                                         <td className="py-4">
@@ -579,6 +652,7 @@ export default function TimetablesPage() {
             {isCreateModalOpen && (
                 <TimetableModal
                     formData={formData}
+                    faculties={faculties}
                     formError={formError}
                     onChange={handleInputChange}
                     onClose={closeCreateModal}
@@ -606,6 +680,7 @@ export default function TimetablesPage() {
 
 interface TimetableModalProps {
     formData: FormDataState;
+    faculties: FacultyResponse[];
     formError: string;
     onClose: () => void;
     onSubmit: (e: React.FormEvent) => void;
@@ -614,6 +689,7 @@ interface TimetableModalProps {
 
 function TimetableModal({
                             formData,
+                            faculties,
                             formError,
                             onClose,
                             onSubmit,
@@ -656,6 +732,26 @@ function TimetableModal({
                             placeholder="Example: Fall 2026 Main Schedule"
                             required
                         />
+                    </div>
+
+                    <div>
+                        <label className="mb-2 block text-sm font-medium">
+                            Faculty
+                        </label>
+                        <select
+                            name="facultyId"
+                            value={formData.facultyId}
+                            onChange={onChange}
+                            required
+                            className="flex h-10 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                            <option value={0}>Select faculty</option>
+                            {faculties.map((faculty) => (
+                                <option key={faculty.id} value={faculty.id}>
+                                    {faculty.name}
+                                </option>
+                            ))}
+                        </select>
                     </div>
 
                     <div>
