@@ -11,6 +11,7 @@ import { publicTimetableApi } from "@/lib";
 import { DAYS_OF_WEEK } from "@/lib/constants";
 import type {
     DayOfWeek,
+    PublicTimetableFilterOptionsResponse,
     PublicFilterOptionResponse,
     PublicTimetableLessonResponse,
     PublicTimetableQuery,
@@ -37,13 +38,7 @@ interface RowItem {
     name: string;
 }
 
-interface PublicTimetableFilterOptions {
-    faculties: PublicFilterOptionResponse[];
-    departments: PublicFilterOptionResponse[];
-    groups: PublicFilterOptionResponse[];
-    teachers: PublicFilterOptionResponse[];
-    rooms: PublicFilterOptionResponse[];
-}
+type PublicTimetableFilterOptions = PublicTimetableFilterOptionsResponse;
 
 const EMPTY_FILTERS: FilterState = {
     facultyId: "",
@@ -55,6 +50,13 @@ const EMPTY_FILTERS: FilterState = {
 };
 
 const EMPTY_OPTIONS: PublicFilterOptionResponse[] = [];
+const EMPTY_FILTER_OPTIONS: PublicTimetableFilterOptions = {
+    faculties: EMPTY_OPTIONS,
+    departments: EMPTY_OPTIONS,
+    groups: EMPTY_OPTIONS,
+    teachers: EMPTY_OPTIONS,
+    rooms: EMPTY_OPTIONS,
+};
 const ALL_ROOMS_VALUE = "__ALL_ROOMS__";
 
 const SECONDARY_FILTERS: {
@@ -148,6 +150,18 @@ function sortOptions(options: PublicFilterOptionResponse[]) {
     return options.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function mergeOptions(...optionLists: PublicFilterOptionResponse[][]) {
+    const options = new Map<number, string>();
+
+    optionLists.flat().forEach((option) => {
+        if (option && Number.isFinite(option.id) && option.name) {
+            options.set(option.id, option.name);
+        }
+    });
+
+    return sortOptions([...options.entries()].map(([id, name]) => ({ id, name })));
+}
+
 function collectOptions(
     lessons: PublicTimetableLessonResponse[],
     getOption: (lesson: PublicTimetableLessonResponse) => PublicFilterOptionResponse | null,
@@ -157,7 +171,7 @@ function collectOptions(
     lessons.forEach((lesson) => {
         const option = getOption(lesson);
 
-        if (option) {
+        if (option && Number.isFinite(option.id) && option.name) {
             options.set(option.id, option.name);
         }
     });
@@ -165,11 +179,29 @@ function collectOptions(
     return sortOptions([...options.entries()].map(([id, name]) => ({ id, name })));
 }
 
-function buildFilterOptions(lessons: PublicTimetableLessonResponse[]): PublicTimetableFilterOptions {
+function buildFilterOptions(
+    lessons: PublicTimetableLessonResponse[],
+    timetable?: PublicTimetableScheduleResponse["timetable"],
+    baseOptions: PublicTimetableFilterOptions = EMPTY_FILTER_OPTIONS,
+): PublicTimetableFilterOptions {
+    const faculties = mergeOptions(
+        baseOptions.faculties,
+        collectOptions(lessons, (lesson) => ({ id: lesson.facultyId, name: lesson.facultyName })),
+    );
+
+    if (timetable?.facultyId && timetable.facultyName && !faculties.some((faculty) => faculty.id === timetable.facultyId)) {
+        faculties.push({ id: timetable.facultyId, name: timetable.facultyName });
+        sortOptions(faculties);
+    }
+
     return {
-        faculties: collectOptions(lessons, (lesson) => ({ id: lesson.facultyId, name: lesson.facultyName })),
-        departments: collectOptions(lessons, (lesson) => ({ id: lesson.departmentId, name: lesson.departmentName })),
-        groups: sortOptions(
+        faculties,
+        departments: mergeOptions(
+            baseOptions.departments,
+            collectOptions(lessons, (lesson) => ({ id: lesson.departmentId, name: lesson.departmentName })),
+        ),
+        groups: mergeOptions(
+            baseOptions.groups,
             [
                 ...lessons.reduce((groups, lesson) => {
                     lesson.groups.forEach((group) => groups.set(group.id, group.name));
@@ -177,9 +209,15 @@ function buildFilterOptions(lessons: PublicTimetableLessonResponse[]): PublicTim
                 }, new Map<number, string>()),
             ].map(([id, name]) => ({ id, name })),
         ),
-        teachers: collectOptions(lessons, (lesson) => ({ id: lesson.teacherId, name: lesson.teacherName })),
-        rooms: collectOptions(lessons, (lesson) =>
-            lesson.roomId && lesson.roomName ? { id: lesson.roomId, name: lesson.roomName } : null,
+        teachers: mergeOptions(
+            baseOptions.teachers,
+            collectOptions(lessons, (lesson) => ({ id: lesson.teacherId, name: lesson.teacherName })),
+        ),
+        rooms: mergeOptions(
+            baseOptions.rooms,
+            collectOptions(lessons, (lesson) =>
+                lesson.roomId && lesson.roomName ? { id: lesson.roomId, name: lesson.roomName } : null,
+            ),
         ),
     };
 }
@@ -281,7 +319,16 @@ export default function AiuTimetablePage() {
         try {
             setScheduleLoading(true);
             setMessage("");
-            setSchedule(await publicTimetableApi.getSchedule(getQuery(filters)));
+            const query = getQuery(filters);
+            const [nextSchedule, nextFilterOptions] = await Promise.all([
+                publicTimetableApi.getSchedule(query),
+                publicTimetableApi.getFilterOptions({
+                    facultyId: query.facultyId,
+                    departmentId: query.departmentId,
+                }),
+            ]);
+            setSchedule(nextSchedule);
+            setFiltersData(buildFilterOptions(nextSchedule.lessons, nextSchedule.timetable, nextFilterOptions));
         } catch {
             setSchedule(null);
             setMessage("No published timetable yet.");
@@ -310,9 +357,12 @@ export default function AiuTimetablePage() {
             setMessage("");
             setFilters(EMPTY_FILTERS);
             setSchedule(null);
-            const initialSchedule = await publicTimetableApi.getSchedule();
+            const [initialSchedule, initialFilterOptions] = await Promise.all([
+                publicTimetableApi.getSchedule(),
+                publicTimetableApi.getFilterOptions(),
+            ]);
 
-            setFiltersData(buildFilterOptions(initialSchedule.lessons));
+            setFiltersData(buildFilterOptions(initialSchedule.lessons, initialSchedule.timetable, initialFilterOptions));
         } catch {
             setFiltersData(buildFilterOptions([]));
             setFilters(EMPTY_FILTERS);
@@ -336,6 +386,10 @@ export default function AiuTimetablePage() {
                 next.teacherId = "";
                 next.roomId = "";
                 next.dayOfWeek = "ALL";
+            }
+
+            if (key === "departmentId") {
+                next.groupId = "";
             }
 
             if (key === "groupId" && value) {
