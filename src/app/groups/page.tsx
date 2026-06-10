@@ -7,6 +7,7 @@ import {
     Plus,
     Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -18,22 +19,38 @@ import {
     CardContent,
     CardHeader,
 } from "@/components/ui/card";
+import { DeleteModeDialog } from "@/components/ui/delete-mode-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+    AssignmentResponse,
     DeleteMode,
     DepartmentResponse,
     Degree,
     FacultyResponse,
+    LessonResponse,
+    LunchResponse,
+    TimetableResponse,
+    assignmentApi,
+    compactGroups,
     departmentApi,
     facultyApi,
+    formatAssignment,
+    formatLesson,
+    formatLunch,
     getApiErrorMessage,
+    getDeleteRelatedRecordsMessage,
+    getDeleteSuccessMessage,
     groupApi,
+    lessonApi,
+    lunchApi,
     majorApi,
     MajorResponse,
     StudyGroupResponse,
+    timetableApi,
+    uniqueItems,
 } from "@/lib";
 
 type SortField = "name" | "major" | "degree" | "course" | "studentCount";
@@ -81,6 +98,9 @@ export default function GroupsPage() {
     const [majors, setMajors] = useState<MajorResponse[]>([]);
     const [faculties, setFaculties] = useState<FacultyResponse[]>([]);
     const [departments, setDepartments] = useState<DepartmentResponse[]>([]);
+    const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
+    const [lessons, setLessons] = useState<LessonResponse[]>([]);
+    const [lunches, setLunches] = useState<LunchResponse[]>([]);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -98,6 +118,10 @@ export default function GroupsPage() {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [currentGroup, setCurrentGroup] =
         useState<StudyGroupResponse | null>(null);
+    const [deleteTarget, setDeleteTarget] =
+        useState<StudyGroupResponse | "selected" | null>(null);
+    const [deleteMode, setDeleteMode] = useState<DeleteMode>("SIMPLE");
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const [formData, setFormData] = useState<FormDataState>(EMPTY_FORM);
 
@@ -193,17 +217,27 @@ export default function GroupsPage() {
 
             setError("");
 
-            const [groupsData, majorsData, facultiesData, departmentsData] = await Promise.all([
+            const [groupsData, majorsData, facultiesData, departmentsData, timetablesData] = await Promise.all([
                 groupApi.getGroups(),
                 majorApi.getMajors(),
                 facultyApi.getFaculties(),
                 departmentApi.getDepartments(),
+                timetableApi.getAllTimetables(),
+            ]);
+            const timetableIds = timetablesData.map((timetable: TimetableResponse) => timetable.id);
+            const [assignmentsData, lessonsData, lunchesData] = await Promise.all([
+                assignmentApi.getAssignmentsForTimetables(timetableIds),
+                lessonApi.getLessonsForTimetables(timetableIds),
+                lunchApi.getLunchesForTimetables(timetableIds),
             ]);
 
             setGroups(groupsData);
             setMajors(majorsData);
             setFaculties(facultiesData);
             setDepartments(departmentsData);
+            setAssignments(assignmentsData);
+            setLessons(lessonsData);
+            setLunches(lunchesData);
         } catch (err) {
             setError(getApiErrorMessage(err, "Failed to load study groups"));
         } finally {
@@ -351,58 +385,105 @@ export default function GroupsPage() {
         setIsEditModalOpen(true);
     };
 
-    const handleDelete = async (
-        group: StudyGroupResponse,
-        mode: DeleteMode = "SIMPLE",
-    ) => {
-        if (!confirm(`Delete study group "${group.name}"?`)) return;
+    const getDeleteDependencyGroups = () => {
+        const targets =
+            deleteTarget === "selected"
+                ? groups.filter((group) => selectedGroups.includes(group.id))
+                : deleteTarget
+                    ? [deleteTarget]
+                    : [];
 
-        try {
-            setError("");
+        if (targets.length === 0) return [];
 
-            await groupApi.deleteGroup(group.id, mode);
+        const targetIds = new Set(targets.map((group) => group.id));
 
-            await loadData();
-        } catch (err) {
-            setError(
-                getApiErrorMessage(
-                    err,
-                    "Failed to delete study group. It may have related assignments or lessons.",
+        return compactGroups([
+            {
+                label: "Assignments",
+                items: uniqueItems(
+                    assignments
+                        .filter((assignment) =>
+                            assignment.groupIds.some((groupId) => targetIds.has(groupId)),
+                        )
+                        .map(formatAssignment),
                 ),
-            );
-        }
+            },
+            {
+                label: "Lessons",
+                items: uniqueItems(
+                    lessons
+                        .filter((lesson) =>
+                            lesson.groupNames.some((groupName) =>
+                                targets.some((target) => target.name === groupName),
+                            ),
+                        )
+                        .map(formatLesson),
+                ),
+            },
+            {
+                label: "Lunches",
+                items: lunches
+                    .filter((lunch) => targetIds.has(lunch.groupId))
+                    .map(formatLunch),
+            },
+        ]);
     };
 
-    const handleDeleteSelected = async () => {
-        if (selectedGroups.length === 0) return;
+    const openDeleteDialog = (target: StudyGroupResponse | "selected") => {
+        setError("");
+        setDeleteMode("SIMPLE");
+        setDeleteTarget(target);
+    };
 
-        if (!confirm(`Delete ${selectedGroups.length} selected study groups?`)) {
-            return;
-        }
+    const closeDeleteDialog = () => {
+        if (deleteLoading) return;
+        setDeleteTarget(null);
+        setDeleteMode("SIMPLE");
+    };
+
+    const confirmDelete = async (mode: DeleteMode) => {
+        if (!deleteTarget) return;
+        const target = deleteTarget;
 
         try {
+            setDeleteLoading(true);
             setError("");
+            setDeleteTarget(null);
+            setDeleteMode("SIMPLE");
 
-            const results = await Promise.allSettled(
-                selectedGroups.map((id) => groupApi.deleteGroup(id, "SIMPLE")),
-            );
+            if (target === "selected") {
+                const results = await Promise.allSettled(
+                    selectedGroups.map((id) => groupApi.deleteGroup(id, mode)),
+                );
 
-            const failed = results.filter((result) => result.status === "rejected");
+                const failed = results.filter((result) => result.status === "rejected");
 
-            if (failed.length > 0) {
-                setError(`${failed.length} group(s) could not be deleted`);
+                if (failed.length > 0) {
+                    const failedIds = selectedGroups.filter(
+                        (_id, index) => results[index].status === "rejected",
+                    );
+                    toast.error(getDeleteRelatedRecordsMessage("group", failedIds));
+                }
+
+                setSelectedGroups([]);
+                if (failed.length === 0) {
+                    toast.success(getDeleteSuccessMessage("group", true));
+                }
+            } else {
+                await groupApi.deleteGroup(target.id, mode);
+                toast.success(getDeleteSuccessMessage("group"));
             }
 
-            setSelectedGroups([]);
-
             await loadData();
-        } catch (err) {
-            setError(
-                getApiErrorMessage(
-                    err,
-                    "Unexpected error while deleting study groups",
+        } catch {
+            toast.error(
+                getDeleteRelatedRecordsMessage(
+                    "group",
+                    target === "selected" ? selectedGroups : target.id,
                 ),
             );
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
@@ -509,7 +590,7 @@ export default function GroupsPage() {
                         </div>
 
                         {selectedGroups.length > 0 && (
-                            <Button variant="destructive" onClick={handleDeleteSelected}>
+                            <Button variant="destructive" onClick={() => openDeleteDialog("selected")}>
                                 <Trash2 className="h-4 w-4" />
                                 Delete selected ({selectedGroups.length})
                             </Button>
@@ -634,7 +715,7 @@ export default function GroupsPage() {
                                                     variant="ghost"
                                                     size="icon-sm"
                                                     onClick={() =>
-                                                        handleDelete(group)
+                                                        openDeleteDialog(group)
                                                     }
                                                     aria-label="Delete group"
                                                     className="text-red-600 hover:bg-red-50 hover:text-red-700"
@@ -662,6 +743,19 @@ export default function GroupsPage() {
                     onSubmit={isCreateModalOpen ? handleCreateSubmit : handleEditSubmit}
                 />
             )}
+
+            <DeleteModeDialog
+                open={Boolean(deleteTarget)}
+                title={deleteTarget === "selected" ? "Delete selected study groups?" : "Delete study group?"}
+                description="Choose how related assignments and schedule data should be handled."
+                entityName={deleteTarget === "selected" ? `${selectedGroups.length} study groups` : deleteTarget?.name}
+                dependencyGroups={getDeleteDependencyGroups()}
+                selectedMode={deleteMode}
+                loading={deleteLoading}
+                onModeChange={setDeleteMode}
+                onCancel={closeDeleteDialog}
+                onConfirm={confirmDelete}
+            />
         </AppShell>
     );
 }

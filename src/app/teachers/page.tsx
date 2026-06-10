@@ -6,6 +6,7 @@ import {
     Plus,
     Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -16,13 +17,26 @@ import {
     CardContent,
     CardHeader,
 } from "@/components/ui/card";
+import { DeleteModeDialog } from "@/components/ui/delete-mode-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+    AssignmentResponse,
     DeleteMode,
+    LessonResponse,
     TeacherResponse,
+    TimetableResponse,
+    assignmentApi,
+    compactGroups,
+    formatAssignment,
+    formatLesson,
+    getDeleteRelatedRecordsMessage,
+    getDeleteSuccessMessage,
+    lessonApi,
     teacherApi,
+    timetableApi,
+    uniqueItems,
 } from "@/lib";
 
 type SortField = "fullName";
@@ -38,6 +52,8 @@ const EMPTY_FORM: FormDataState = {
 
 export default function TeachersPage() {
     const [teachers, setTeachers] = useState<TeacherResponse[]>([]);
+    const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
+    const [lessons, setLessons] = useState<LessonResponse[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
@@ -50,6 +66,10 @@ export default function TeachersPage() {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [currentTeacher, setCurrentTeacher] = useState<TeacherResponse | null>(null);
+    const [deleteTarget, setDeleteTarget] =
+        useState<TeacherResponse | "selected" | null>(null);
+    const [deleteMode, setDeleteMode] = useState<DeleteMode>("SIMPLE");
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const [formData, setFormData] = useState<FormDataState>(EMPTY_FORM);
 
@@ -80,10 +100,20 @@ export default function TeachersPage() {
 
             setError("");
 
-            const data = await teacherApi.getTeachers();
-            setTeachers(data);
-        } catch (err) {
-            console.error("Error loading teachers:", err);
+            const [teachersData, timetablesData] = await Promise.all([
+                teacherApi.getTeachers(),
+                timetableApi.getAllTimetables(),
+            ]);
+            const timetableIds = timetablesData.map((timetable: TimetableResponse) => timetable.id);
+            const [assignmentsData, lessonsData] = await Promise.all([
+                assignmentApi.getAssignmentsForTimetables(timetableIds),
+                lessonApi.getLessonsForTimetables(timetableIds),
+            ]);
+
+            setTeachers(teachersData);
+            setAssignments(assignmentsData);
+            setLessons(lessonsData);
+        } catch {
             setError("Failed to load teachers");
         } finally {
             if (initial) setLoading(false);
@@ -157,7 +187,6 @@ export default function TeachersPage() {
 
             await loadData();
         } catch (err: any) {
-            console.error("Error creating teacher:", err);
             setError(err.response?.data?.message || "Failed to create teacher");
         }
     };
@@ -181,7 +210,6 @@ export default function TeachersPage() {
 
             await loadData();
         } catch (err: any) {
-            console.error("Error updating teacher:", err);
             setError(err.response?.data?.message || "Failed to update teacher");
         }
     };
@@ -196,47 +224,97 @@ export default function TeachersPage() {
         setIsEditModalOpen(true);
     };
 
-    const handleDelete = async (teacher: TeacherResponse) => {
-        if (!confirm(`Delete teacher "${teacher.fullName}"?`)) return;
+    const getDeleteDependencyGroups = () => {
+        const targetIds =
+            deleteTarget === "selected"
+                ? selectedTeachers
+                : deleteTarget
+                    ? [deleteTarget.id]
+                    : [];
 
-        try {
-            setError("");
+        if (targetIds.length === 0) return [];
 
-            await teacherApi.deleteTeacher(teacher.id, "SIMPLE");
-            await loadData();
-        } catch (err: any) {
-            console.error("Error deleting teacher:", err);
-            setError(
-                err.response?.data?.message ||
-                "Failed to delete teacher. It may have related assignments.",
-            );
-        }
+        return compactGroups([
+            {
+                label: "Assignments",
+                items: uniqueItems(
+                    assignments
+                        .filter((assignment) => targetIds.includes(assignment.teacherId))
+                        .map(formatAssignment),
+                ),
+            },
+            {
+                label: "Lessons",
+                items: uniqueItems(
+                    lessons
+                        .filter((lesson) =>
+                            assignments.some(
+                                (assignment) =>
+                                    targetIds.includes(assignment.teacherId) &&
+                                    assignment.id === lesson.assignmentId,
+                            ),
+                        )
+                        .map(formatLesson),
+                ),
+            },
+        ]);
     };
 
-    const handleDeleteSelected = async () => {
-        if (selectedTeachers.length === 0) return;
+    const openDeleteDialog = (target: TeacherResponse | "selected") => {
+        setError("");
+        setDeleteMode("SIMPLE");
+        setDeleteTarget(target);
+    };
 
-        if (!confirm(`Delete ${selectedTeachers.length} selected teachers?`)) return;
+    const closeDeleteDialog = () => {
+        if (deleteLoading) return;
+        setDeleteTarget(null);
+        setDeleteMode("SIMPLE");
+    };
+
+    const confirmDelete = async (mode: DeleteMode) => {
+        if (!deleteTarget) return;
+        const target = deleteTarget;
 
         try {
+            setDeleteLoading(true);
             setError("");
+            setDeleteTarget(null);
+            setDeleteMode("SIMPLE");
 
-            const results = await Promise.allSettled(
-                selectedTeachers.map((id) =>
-                    teacherApi.deleteTeacher(id, "SIMPLE" as DeleteMode),
-                ),
-            );
+            if (target === "selected") {
+                const results = await Promise.allSettled(
+                    selectedTeachers.map((id) => teacherApi.deleteTeacher(id, mode)),
+                );
 
-            const failed = results.filter((result) => result.status === "rejected");
+                const failed = results.filter((result) => result.status === "rejected");
 
-            if (failed.length > 0) {
-                setError(`${failed.length} teacher(s) could not be deleted`);
+                if (failed.length > 0) {
+                    const failedIds = selectedTeachers.filter(
+                        (_id, index) => results[index].status === "rejected",
+                    );
+                    toast.error(getDeleteRelatedRecordsMessage("teacher", failedIds));
+                }
+
+                setSelectedTeachers([]);
+                if (failed.length === 0) {
+                    toast.success(getDeleteSuccessMessage("teacher", true));
+                }
+            } else {
+                await teacherApi.deleteTeacher(target.id, mode);
+                toast.success(getDeleteSuccessMessage("teacher"));
             }
 
-            setSelectedTeachers([]);
             await loadData();
         } catch {
-            setError("Unexpected error while deleting teachers");
+            toast.error(
+                getDeleteRelatedRecordsMessage(
+                    "teacher",
+                    target === "selected" ? selectedTeachers : target.id,
+                ),
+            );
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
@@ -302,7 +380,7 @@ export default function TeachersPage() {
                 {selectedTeachers.length > 0 && (
                     <CardHeader>
                         <div className="flex justify-end">
-                            <Button variant="destructive" onClick={handleDeleteSelected}>
+                            <Button variant="destructive" onClick={() => openDeleteDialog("selected")}>
                                 <Trash2 className="h-4 w-4" />
                                 Delete selected ({selectedTeachers.length})
                             </Button>
@@ -378,7 +456,7 @@ export default function TeachersPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon-sm"
-                                                    onClick={() => handleDelete(teacher)}
+                                                    onClick={() => openDeleteDialog(teacher)}
                                                     aria-label="Delete teacher"
                                                     className="text-red-600 hover:bg-red-50 hover:text-red-700"
                                                 >
@@ -404,6 +482,19 @@ export default function TeachersPage() {
                     onSubmit={isCreateModalOpen ? handleCreateSubmit : handleEditSubmit}
                 />
             )}
+
+            <DeleteModeDialog
+                open={Boolean(deleteTarget)}
+                title={deleteTarget === "selected" ? "Delete selected teachers?" : "Delete teacher?"}
+                description="Choose how assignments and generated schedule data should be handled."
+                entityName={deleteTarget === "selected" ? `${selectedTeachers.length} teachers` : deleteTarget?.fullName}
+                dependencyGroups={getDeleteDependencyGroups()}
+                selectedMode={deleteMode}
+                loading={deleteLoading}
+                onModeChange={setDeleteMode}
+                onCancel={closeDeleteDialog}
+                onConfirm={confirmDelete}
+            />
         </AppShell>
     );
 }

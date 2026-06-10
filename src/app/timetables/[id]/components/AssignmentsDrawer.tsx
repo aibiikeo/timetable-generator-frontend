@@ -56,6 +56,10 @@ function getStatusLabel(status: AssignmentFilter) {
     return "All";
 }
 
+function includesQuery(value: string | null | undefined, query: string) {
+    return value?.toLowerCase().includes(query) ?? false;
+}
+
 export default function AssignmentsDrawer({
                                               open,
                                               assignments,
@@ -114,14 +118,14 @@ export default function AssignmentsDrawer({
             if (!query) return true;
 
             return (
-                assignment.subjectName.toLowerCase().includes(query) ||
-                assignment.teacherName.toLowerCase().includes(query) ||
-                assignment.groupNames.some((groupName) =>
-                    groupName.toLowerCase().includes(query),
+                includesQuery(assignment.subjectName, query) ||
+                includesQuery(assignment.teacherName, query) ||
+                assignment.groupNames?.some((groupName) =>
+                    includesQuery(groupName, query),
                 ) ||
-                assignment.majorName?.toLowerCase().includes(query) ||
-                assignment.departmentName?.toLowerCase().includes(query) ||
-                assignment.facultyName?.toLowerCase().includes(query)
+                includesQuery(assignment.majorName, query) ||
+                includesQuery(assignment.departmentName, query) ||
+                includesQuery(assignment.facultyName, query)
             );
         });
     }, [assignments, filter, searchQuery]);
@@ -269,6 +273,7 @@ export default function AssignmentsDrawer({
                                 const status = normalizePlacementStatus(
                                     assignment.placementStatus,
                                 );
+                                const groupNames = assignment.groupNames ?? [];
 
                                 return (
                                     <Card
@@ -280,7 +285,7 @@ export default function AssignmentsDrawer({
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         <h3 className="line-clamp-2 text-sm font-semibold">
-                                                            {assignment.subjectName}
+                                                            {assignment.subjectName || "Untitled subject"}
                                                         </h3>
 
                                                         <Badge
@@ -293,11 +298,11 @@ export default function AssignmentsDrawer({
                                                     </div>
 
                                                     <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
-                                                        {assignment.teacherName}
+                                                        {assignment.teacherName || "No teacher"}
                                                     </p>
 
                                                     <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                                                        {assignment.groupNames.join(", ")}
+                                                        {groupNames.length > 0 ? groupNames.join(", ") : "No groups"}
                                                     </p>
 
                                                     <div className="mt-3 flex flex-wrap gap-2">

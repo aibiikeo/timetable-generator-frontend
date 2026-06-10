@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Edit, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -12,10 +13,40 @@ import {
     CardContent,
     CardHeader,
 } from "@/components/ui/card";
+import { DeleteModeDialog } from "@/components/ui/delete-mode-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FacultyResponse, facultyApi, getApiErrorMessage } from "@/lib";
+import {
+    DeleteMode,
+    DepartmentResponse,
+    FacultyResponse,
+    MajorResponse,
+    AssignmentResponse,
+    LessonResponse,
+    LunchResponse,
+    StudyGroupResponse,
+    SubjectResponse,
+    TimetableResponse,
+    assignmentApi,
+    compactGroups,
+    departmentApi,
+    facultyApi,
+    formatAssignment,
+    formatLesson,
+    formatLunch,
+    formatTimetable,
+    getApiErrorMessage,
+    getDeleteRelatedRecordsMessage,
+    getDeleteSuccessMessage,
+    groupApi,
+    lessonApi,
+    lunchApi,
+    majorApi,
+    subjectApi,
+    timetableApi,
+    uniqueItems,
+} from "@/lib";
 
 type SortField = "name";
 type SortDirection = "asc" | "desc";
@@ -30,6 +61,14 @@ const EMPTY_FORM: FormDataState = {
 
 export default function FacultiesPage() {
     const [faculties, setFaculties] = useState<FacultyResponse[]>([]);
+    const [departments, setDepartments] = useState<DepartmentResponse[]>([]);
+    const [majors, setMajors] = useState<MajorResponse[]>([]);
+    const [groups, setGroups] = useState<StudyGroupResponse[]>([]);
+    const [subjects, setSubjects] = useState<SubjectResponse[]>([]);
+    const [timetables, setTimetables] = useState<TimetableResponse[]>([]);
+    const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
+    const [lessons, setLessons] = useState<LessonResponse[]>([]);
+    const [lunches, setLunches] = useState<LunchResponse[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
@@ -43,6 +82,10 @@ export default function FacultiesPage() {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [currentFaculty, setCurrentFaculty] =
         useState<FacultyResponse | null>(null);
+    const [deleteTarget, setDeleteTarget] =
+        useState<FacultyResponse | "selected" | null>(null);
+    const [deleteMode, setDeleteMode] = useState<DeleteMode>("SIMPLE");
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const [formData, setFormData] = useState<FormDataState>(EMPTY_FORM);
 
@@ -74,8 +117,37 @@ export default function FacultiesPage() {
 
             setError("");
 
-            const data = await facultyApi.getFaculties();
-            setFaculties(data);
+            const [
+                facultiesData,
+                departmentsData,
+                majorsData,
+                groupsData,
+                subjectsData,
+                timetablesData,
+            ] = await Promise.all([
+                facultyApi.getFaculties(),
+                departmentApi.getDepartments(),
+                majorApi.getMajors(),
+                groupApi.getGroups(),
+                subjectApi.getSubjects(),
+                timetableApi.getAllTimetables(),
+            ]);
+            const timetableIds = timetablesData.map((timetable) => timetable.id);
+            const [assignmentsData, lessonsData, lunchesData] = await Promise.all([
+                assignmentApi.getAssignmentsForTimetables(timetableIds),
+                lessonApi.getLessonsForTimetables(timetableIds),
+                lunchApi.getLunchesForTimetables(timetableIds),
+            ]);
+
+            setFaculties(facultiesData);
+            setDepartments(departmentsData);
+            setMajors(majorsData);
+            setGroups(groupsData);
+            setSubjects(subjectsData);
+            setTimetables(timetablesData);
+            setAssignments(assignmentsData);
+            setLessons(lessonsData);
+            setLunches(lunchesData);
         } catch (err) {
             setError(getApiErrorMessage(err, "Failed to load faculties"));
         } finally {
@@ -187,53 +259,139 @@ export default function FacultiesPage() {
         setIsEditModalOpen(true);
     };
 
-    const handleDelete = async (faculty: FacultyResponse) => {
-        if (!confirm(`Delete faculty "${faculty.name}"?`)) return;
+    const getDeleteDependencyGroups = () => {
+        const targetIds =
+            deleteTarget === "selected"
+                ? selectedFaculties
+                : deleteTarget
+                    ? [deleteTarget.id]
+                    : [];
 
-        try {
-            setError("");
+        if (targetIds.length === 0) return [];
 
-            await facultyApi.deleteFaculty(faculty.id);
-            await loadData();
-        } catch (err) {
-            setError(
-                getApiErrorMessage(
-                    err,
-                    "Failed to delete faculty. It may have related departments, majors or groups.",
+        const relatedTimetables = timetables.filter((timetable) =>
+            targetIds.includes(timetable.facultyId),
+        );
+        const relatedTimetableIds = new Set(
+            relatedTimetables.map((timetable) => timetable.id),
+        );
+        const relatedGroupIds = new Set(groups
+            .filter((group) => targetIds.includes(group.facultyId))
+            .map((group) => group.id));
+
+        return compactGroups([
+            {
+                label: "Departments",
+                items: departments
+                    .filter((department) => targetIds.includes(department.facultyId))
+                    .map((department) => department.name),
+            },
+            {
+                label: "Majors",
+                items: majors
+                    .filter((major) => targetIds.includes(major.facultyId))
+                    .map((major) => major.shortName ? `${major.shortName} - ${major.name}` : major.name),
+            },
+            {
+                label: "Groups",
+                items: groups
+                    .filter((group) => targetIds.includes(group.facultyId))
+                    .map((group) => group.name),
+            },
+            {
+                label: "Subjects",
+                items: subjects
+                    .filter((subject) => targetIds.includes(subject.facultyId))
+                    .map((subject) => `${subject.code} - ${subject.name}`),
+            },
+            {
+                label: "Timetables",
+                items: relatedTimetables.map(formatTimetable),
+            },
+            {
+                label: "Assignments",
+                items: uniqueItems(
+                    assignments
+                        .filter((assignment) => targetIds.includes(assignment.facultyId))
+                        .map(formatAssignment),
                 ),
-            );
-        }
+            },
+            {
+                label: "Lessons",
+                items: uniqueItems(
+                    lessons
+                        .filter((lesson) => targetIds.includes(lesson.facultyId))
+                        .map(formatLesson),
+                ),
+            },
+            {
+                label: "Lunches",
+                items: lunches
+                    .filter(
+                        (lunch) =>
+                            relatedTimetableIds.has(lunch.timetableId) ||
+                            relatedGroupIds.has(lunch.groupId),
+                    )
+                    .map(formatLunch),
+            },
+        ]);
     };
 
-    const handleDeleteSelected = async () => {
-        if (selectedFaculties.length === 0) return;
+    const openDeleteDialog = (target: FacultyResponse | "selected") => {
+        setError("");
+        setDeleteMode("SIMPLE");
+        setDeleteTarget(target);
+    };
 
-        if (!confirm(`Delete ${selectedFaculties.length} selected faculties?`)) {
-            return;
-        }
+    const closeDeleteDialog = () => {
+        if (deleteLoading) return;
+        setDeleteTarget(null);
+        setDeleteMode("SIMPLE");
+    };
+
+    const confirmDelete = async (mode: DeleteMode) => {
+        if (!deleteTarget) return;
+        const target = deleteTarget;
 
         try {
+            setDeleteLoading(true);
             setError("");
+            setDeleteTarget(null);
+            setDeleteMode("SIMPLE");
 
-            const results = await Promise.allSettled(
-                selectedFaculties.map((id) => facultyApi.deleteFaculty(id)),
-            );
+            if (target === "selected") {
+                const results = await Promise.allSettled(
+                    selectedFaculties.map((id) => facultyApi.deleteFaculty(id, mode)),
+                );
 
-            const failed = results.filter((result) => result.status === "rejected");
+                const failed = results.filter((result) => result.status === "rejected");
 
-            if (failed.length > 0) {
-                setError(`${failed.length} faculty/faculties could not be deleted`);
+                if (failed.length > 0) {
+                    const failedIds = selectedFaculties.filter(
+                        (_id, index) => results[index].status === "rejected",
+                    );
+                    toast.error(getDeleteRelatedRecordsMessage("faculty", failedIds));
+                }
+
+                setSelectedFaculties([]);
+                if (failed.length === 0) {
+                    toast.success(getDeleteSuccessMessage("faculty", true));
+                }
+            } else {
+                await facultyApi.deleteFaculty(target.id, mode);
+                toast.success(getDeleteSuccessMessage("faculty"));
             }
 
-            setSelectedFaculties([]);
             await loadData();
-        } catch (err) {
-            setError(
-                getApiErrorMessage(
-                    err,
-                    "Unexpected error while deleting faculties",
+        } catch {
+            toast.error(
+                getDeleteRelatedRecordsMessage(
+                    "faculty",
+                    target === "selected" ? selectedFaculties : target.id,
                 ),
             );
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
@@ -299,7 +457,7 @@ export default function FacultiesPage() {
                 {selectedFaculties.length > 0 && (
                     <CardHeader>
                         <div className="flex justify-end">
-                            <Button variant="destructive" onClick={handleDeleteSelected}>
+                            <Button variant="destructive" onClick={() => openDeleteDialog("selected")}>
                                 <Trash2 className="h-4 w-4" />
                                 Delete selected ({selectedFaculties.length})
                             </Button>
@@ -389,7 +547,7 @@ export default function FacultiesPage() {
                                                     variant="ghost"
                                                     size="icon-sm"
                                                     onClick={() =>
-                                                        handleDelete(faculty)
+                                                        openDeleteDialog(faculty)
                                                     }
                                                     aria-label="Delete faculty"
                                                     className="text-red-600 hover:bg-red-50 hover:text-red-700"
@@ -416,6 +574,19 @@ export default function FacultiesPage() {
                     onSubmit={isCreateModalOpen ? handleCreateSubmit : handleEditSubmit}
                 />
             )}
+
+            <DeleteModeDialog
+                open={Boolean(deleteTarget)}
+                title={deleteTarget === "selected" ? "Delete selected faculties?" : "Delete faculty?"}
+                description="Choose how related departments, majors, groups, subjects and schedule data should be handled."
+                entityName={deleteTarget === "selected" ? `${selectedFaculties.length} faculties` : deleteTarget?.name}
+                dependencyGroups={getDeleteDependencyGroups()}
+                selectedMode={deleteMode}
+                loading={deleteLoading}
+                onModeChange={setDeleteMode}
+                onCancel={closeDeleteDialog}
+                onConfirm={confirmDelete}
+            />
         </AppShell>
     );
 }

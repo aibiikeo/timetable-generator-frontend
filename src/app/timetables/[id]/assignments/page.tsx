@@ -10,6 +10,7 @@ import {
     Trash2,
     X,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -22,12 +23,18 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
+import { DeleteModeDialog } from "@/components/ui/delete-mode-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FilterSelect } from "@/components/ui/filter-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     assignmentApi,
+    compactGroups,
+    formatLesson,
+    getDeleteRelatedRecordsMessage,
+    getDeleteSuccessMessage,
     groupApi,
+    lessonApi,
     roomApi,
     subjectApi,
     teacherApi,
@@ -37,6 +44,8 @@ import {
 import type {
     AssignmentRequest,
     AssignmentResponse,
+    DeleteMode,
+    LessonResponse,
     RoomResponse,
     StudyGroupResponse,
     SubjectResponse,
@@ -50,6 +59,7 @@ import AssignmentForm from "./components/AssignmentForm";
 type SortField = "subjectName" | "teacherName" | "placementStatus";
 type SortDirection = "asc" | "desc";
 const LAST_WORKED_TIMETABLE_STORAGE_KEY = "last-worked-timetable-id";
+const ASSIGNMENT_DELETE_MODES: DeleteMode[] = ["SIMPLE", "WITH"];
 
 function getApiErrorMessage(error: unknown, fallback: string) {
     if (
@@ -117,6 +127,7 @@ export default function AssignmentsPage({
 
     const [timetable, setTimetable] = useState<TimetableResponse | null>(null);
     const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
+    const [lessons, setLessons] = useState<LessonResponse[]>([]);
 
     const [subjects, setSubjects] = useState<SubjectResponse[]>([]);
     const [teachers, setTeachers] = useState<TeacherResponse[]>([]);
@@ -140,6 +151,9 @@ export default function AssignmentsPage({
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [editingAssignment, setEditingAssignment] =
         useState<AssignmentResponse | null>(null);
+    const [deleteTarget, setDeleteTarget] =
+        useState<AssignmentResponse | "selected" | null>(null);
+    const [deleteMode, setDeleteMode] = useState<DeleteMode>("SIMPLE");
 
     useEffect(() => {
         if (!timetableId || Number.isNaN(timetableId)) {
@@ -220,6 +234,7 @@ export default function AssignmentsPage({
             const [
                 timetableData,
                 assignmentsData,
+                lessonsData,
                 subjectsData,
                 teachersData,
                 groupsData,
@@ -228,6 +243,7 @@ export default function AssignmentsPage({
             ] = await Promise.all([
                 timetableApi.getTimetable(timetableId),
                 assignmentApi.getAssignmentsByTimetable(timetableId),
+                lessonApi.getLessonsByTimetable(timetableId),
                 subjectApi.getSubjects(),
                 teacherApi.getTeachers(),
                 groupApi.getAllGroups(),
@@ -237,6 +253,7 @@ export default function AssignmentsPage({
 
             setTimetable(timetableData);
             setAssignments(assignmentsData);
+            setLessons(lessonsData);
             setSubjects(subjectsData);
             setTeachers(teachersData);
             setGroups(groupsData);
@@ -353,58 +370,93 @@ export default function AssignmentsPage({
         }
     };
 
-    const handleDelete = async (assignment: AssignmentResponse) => {
-        if (!confirm(`Delete assignment "${assignment.subjectName}"?`)) return;
+    const getDeleteDependencyGroups = () => {
+        const targetIds =
+            deleteTarget === "selected"
+                ? selectedAssignments
+                : deleteTarget
+                    ? [deleteTarget.id]
+                    : [];
+
+        if (targetIds.length === 0) return [];
+
+        return compactGroups([
+            {
+                label: "Lessons",
+                items: lessons
+                    .filter((lesson) => targetIds.includes(lesson.assignmentId))
+                    .map(formatLesson),
+            },
+        ]);
+    };
+
+    const handleDelete = (assignment: AssignmentResponse) => {
+        setDeleteMode("SIMPLE");
+        setDeleteTarget(assignment);
+    };
+
+    const closeDeleteDialog = () => {
+        if (saving) return;
+        setDeleteTarget(null);
+        setDeleteMode("SIMPLE");
+    };
+
+    const confirmDelete = async (mode: DeleteMode) => {
+        if (!deleteTarget) return;
+        const target = deleteTarget;
 
         try {
+            setSaving(true);
             setError("");
             setSuccessMessage("");
+            setDeleteTarget(null);
+            setDeleteMode("SIMPLE");
 
-            await assignmentApi.deleteAssignment(timetableId, assignment.id);
+            if (target === "selected") {
+                const results = await Promise.allSettled(
+                    selectedAssignments.map((assignmentId) =>
+                        assignmentApi.deleteAssignment(timetableId, assignmentId, mode),
+                    ),
+                );
+
+                const failed = results.filter(
+                    (result) => result.status === "rejected",
+                );
+
+                if (failed.length > 0) {
+                    const failedIds = selectedAssignments.filter(
+                        (_id, index) => results[index].status === "rejected",
+                    );
+                    toast.error(getDeleteRelatedRecordsMessage("assignment", failedIds));
+                } else {
+                    toast.success(getDeleteSuccessMessage("assignment", true));
+                    setSuccessMessage("Selected assignments deleted successfully");
+                }
+
+                setSelectedAssignments([]);
+            } else {
+                await assignmentApi.deleteAssignment(timetableId, target.id, mode);
+                toast.success(getDeleteSuccessMessage("assignment"));
+                setSuccessMessage("Assignment deleted successfully");
+            }
+
             await loadData();
-
-            setSuccessMessage("Assignment deleted successfully");
-        } catch (err) {
-            setError(getApiErrorMessage(err, "Failed to delete assignment"));
+        } catch {
+            toast.error(
+                getDeleteRelatedRecordsMessage(
+                    "assignment",
+                    target === "selected" ? selectedAssignments : target.id,
+                ),
+            );
+        } finally {
+            setSaving(false);
         }
     };
 
-    const handleDeleteSelected = async () => {
+    const handleDeleteSelected = () => {
         if (selectedAssignments.length === 0) return;
-
-        if (
-            !confirm(
-                `Delete ${selectedAssignments.length} selected assignments?`,
-            )
-        ) {
-            return;
-        }
-
-        try {
-            setError("");
-            setSuccessMessage("");
-
-            const results = await Promise.allSettled(
-                selectedAssignments.map((assignmentId) =>
-                    assignmentApi.deleteAssignment(timetableId, assignmentId),
-                ),
-            );
-
-            const failed = results.filter(
-                (result) => result.status === "rejected",
-            );
-
-            if (failed.length > 0) {
-                setError(`${failed.length} assignment(s) could not be deleted`);
-            } else {
-                setSuccessMessage("Selected assignments deleted successfully");
-            }
-
-            setSelectedAssignments([]);
-            await loadData();
-        } catch {
-            setError("Unexpected error while deleting assignments");
-        }
+        setDeleteMode("SIMPLE");
+        setDeleteTarget("selected");
     };
 
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -777,6 +829,24 @@ export default function AssignmentsPage({
                     </div>
                 </div>
             )}
+
+            <DeleteModeDialog
+                open={Boolean(deleteTarget)}
+                title={deleteTarget === "selected" ? "Delete selected assignments?" : "Delete assignment?"}
+                description="This action removes assignment data and may affect generated lessons."
+                entityName={
+                    deleteTarget === "selected"
+                        ? `${selectedAssignments.length} assignments`
+                        : deleteTarget?.subjectName
+                }
+                dependencyGroups={getDeleteDependencyGroups()}
+                selectedMode={deleteMode}
+                availableModes={ASSIGNMENT_DELETE_MODES}
+                loading={saving}
+                onModeChange={setDeleteMode}
+                onCancel={closeDeleteDialog}
+                onConfirm={confirmDelete}
+            />
         </AppShell>
     );
 }

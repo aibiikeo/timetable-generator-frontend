@@ -16,7 +16,20 @@ export { timeSlotApi } from "./timeSlotApi";
 export { timetableApi } from "./timetableApi";
 export { userApi } from "./userApi";
 
-export { getApiErrorMessage } from "./apiError";
+export {
+    getApiErrorMessage,
+    getDeleteRelatedRecordsMessage,
+    getDeleteSuccessMessage,
+} from "./apiError";
+export {
+    compactGroups,
+    formatAssignment,
+    formatLesson,
+    formatLunch,
+    formatTimetable,
+    uniqueItems,
+} from "./deleteDependencyGroups";
+export type { DeleteDependencyGroup } from "./deleteDependencyGroups";
 export {
     getAssignmentLessonStats,
     getAssignmentUnplacedLessons,

@@ -6,6 +6,7 @@ import {
     Plus,
     Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -17,15 +18,26 @@ import {
     CardContent,
     CardHeader,
 } from "@/components/ui/card";
+import { DeleteModeDialog } from "@/components/ui/delete-mode-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+    DeleteMode,
+    LessonResponse,
     getApiErrorMessage,
+    getDeleteRelatedRecordsMessage,
+    getDeleteSuccessMessage,
+    compactGroups,
+    formatLesson,
+    lessonApi,
     RoomResponse,
     RoomType,
     roomApi,
+    TimetableResponse,
+    timetableApi,
+    uniqueItems,
 } from "@/lib";
 
 type SortField = "name" | "capacity" | "type";
@@ -47,6 +59,7 @@ const ROOM_TYPES: RoomType[] = ["CLASSROOM", "COMPUTER_LAB", "ANY"];
 
 export default function RoomsPage() {
     const [rooms, setRooms] = useState<RoomResponse[]>([]);
+    const [lessons, setLessons] = useState<LessonResponse[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
@@ -60,6 +73,10 @@ export default function RoomsPage() {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [currentRoom, setCurrentRoom] = useState<RoomResponse | null>(null);
+    const [deleteTarget, setDeleteTarget] =
+        useState<RoomResponse | "selected" | null>(null);
+    const [deleteMode, setDeleteMode] = useState<DeleteMode>("SIMPLE");
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const [formData, setFormData] = useState<FormDataState>(EMPTY_FORM);
 
@@ -105,8 +122,15 @@ export default function RoomsPage() {
 
             setError("");
 
-            const data = await roomApi.getRooms();
-            setRooms(data);
+            const [roomsData, timetablesData] = await Promise.all([
+                roomApi.getRooms(),
+                timetableApi.getAllTimetables(),
+            ]);
+            const timetableIds = timetablesData.map((timetable: TimetableResponse) => timetable.id);
+            const lessonsData = await lessonApi.getLessonsForTimetables(timetableIds);
+
+            setRooms(roomsData);
+            setLessons(lessonsData);
         } catch (err) {
             setError(getApiErrorMessage(err, "Failed to load rooms"));
         } finally {
@@ -241,51 +265,87 @@ export default function RoomsPage() {
         setIsEditModalOpen(true);
     };
 
-    const handleDelete = async (room: RoomResponse) => {
-        if (!confirm(`Delete room "${room.name}"?`)) return;
+    const getDeleteDependencyGroups = () => {
+        const targetNames =
+            deleteTarget === "selected"
+                ? rooms
+                    .filter((room) => selectedRooms.includes(room.id))
+                    .map((room) => room.name)
+                : deleteTarget
+                    ? [deleteTarget.name]
+                    : [];
 
-        try {
-            setError("");
+        if (targetNames.length === 0) return [];
 
-            await roomApi.deleteRoom(room.id);
-            await loadData();
-        } catch (err) {
-            setError(
-                getApiErrorMessage(
-                    err,
-                    "Failed to delete room. It may be used in lessons.",
+        return compactGroups([
+            {
+                label: "Lessons",
+                items: uniqueItems(
+                    lessons
+                        .filter((lesson) =>
+                            lesson.roomName ? targetNames.includes(lesson.roomName) : false,
+                        )
+                        .map(formatLesson),
                 ),
-            );
-        }
+            },
+        ]);
     };
 
-    const handleDeleteSelected = async () => {
-        if (selectedRooms.length === 0) return;
+    const openDeleteDialog = (target: RoomResponse | "selected") => {
+        setError("");
+        setDeleteMode("SIMPLE");
+        setDeleteTarget(target);
+    };
 
-        if (!confirm(`Delete ${selectedRooms.length} selected rooms?`)) return;
+    const closeDeleteDialog = () => {
+        if (deleteLoading) return;
+        setDeleteTarget(null);
+        setDeleteMode("SIMPLE");
+    };
+
+    const confirmDelete = async (mode: DeleteMode) => {
+        if (!deleteTarget) return;
+        const target = deleteTarget;
 
         try {
+            setDeleteLoading(true);
             setError("");
+            setDeleteTarget(null);
+            setDeleteMode("SIMPLE");
 
-            const results = await Promise.allSettled(
-                selectedRooms.map((id) => roomApi.deleteRoom(id)),
-            );
+            if (target === "selected") {
+                const results = await Promise.allSettled(
+                    selectedRooms.map((id) => roomApi.deleteRoom(id, mode)),
+                );
 
-            const failed = results.filter((result) => result.status === "rejected");
+                const failed = results.filter((result) => result.status === "rejected");
 
-            if (failed.length > 0) {
-                setError(`${failed.length} room(s) could not be deleted`);
+                if (failed.length > 0) {
+                    const failedIds = selectedRooms.filter(
+                        (_id, index) => results[index].status === "rejected",
+                    );
+                    toast.error(getDeleteRelatedRecordsMessage("room", failedIds));
+                }
+
+                setSelectedRooms([]);
+                if (failed.length === 0) {
+                    toast.success(getDeleteSuccessMessage("room", true));
+                }
+            } else {
+                await roomApi.deleteRoom(target.id, mode);
+                toast.success(getDeleteSuccessMessage("room"));
             }
 
-            setSelectedRooms([]);
             await loadData();
-        } catch (err) {
-            setError(
-                getApiErrorMessage(
-                    err,
-                    "Unexpected error while deleting rooms",
+        } catch {
+            toast.error(
+                getDeleteRelatedRecordsMessage(
+                    "room",
+                    target === "selected" ? selectedRooms : target.id,
                 ),
             );
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
@@ -366,7 +426,7 @@ export default function RoomsPage() {
                         </div>
 
                         {selectedRooms.length > 0 && (
-                            <Button variant="destructive" onClick={handleDeleteSelected}>
+                            <Button variant="destructive" onClick={() => openDeleteDialog("selected")}>
                                 <Trash2 className="h-4 w-4" />
                                 Delete selected ({selectedRooms.length})
                             </Button>
@@ -469,7 +529,7 @@ export default function RoomsPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon-sm"
-                                                    onClick={() => handleDelete(room)}
+                                                    onClick={() => openDeleteDialog(room)}
                                                     aria-label="Delete room"
                                                     className="text-red-600 hover:bg-red-50 hover:text-red-700"
                                                 >
@@ -495,6 +555,19 @@ export default function RoomsPage() {
                     onSubmit={isCreateModalOpen ? handleCreateSubmit : handleEditSubmit}
                 />
             )}
+
+            <DeleteModeDialog
+                open={Boolean(deleteTarget)}
+                title={deleteTarget === "selected" ? "Delete selected rooms?" : "Delete room?"}
+                description="Choose how lessons and generated schedule data should be handled."
+                entityName={deleteTarget === "selected" ? `${selectedRooms.length} rooms` : deleteTarget?.name}
+                dependencyGroups={getDeleteDependencyGroups()}
+                selectedMode={deleteMode}
+                loading={deleteLoading}
+                onModeChange={setDeleteMode}
+                onCancel={closeDeleteDialog}
+                onConfirm={confirmDelete}
+            />
         </AppShell>
     );
 }

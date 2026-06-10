@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Edit, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -13,16 +14,31 @@ import {
     CardContent,
     CardHeader,
 } from "@/components/ui/card";
+import { DeleteModeDialog } from "@/components/ui/delete-mode-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+    AssignmentResponse,
+    DeleteMode,
     DepartmentResponse,
     MajorResponse,
+    StudyGroupResponse,
+    SubjectResponse,
+    TimetableResponse,
+    assignmentApi,
+    compactGroups,
     departmentApi,
+    formatAssignment,
     getApiErrorMessage,
+    getDeleteRelatedRecordsMessage,
+    getDeleteSuccessMessage,
+    groupApi,
     majorApi,
+    subjectApi,
+    timetableApi,
+    uniqueItems,
 } from "@/lib";
 
 type SortField = "name" | "shortName" | "department";
@@ -43,6 +59,9 @@ const EMPTY_FORM: FormDataState = {
 export default function MajorsPage() {
     const [majors, setMajors] = useState<MajorResponse[]>([]);
     const [departments, setDepartments] = useState<DepartmentResponse[]>([]);
+    const [groups, setGroups] = useState<StudyGroupResponse[]>([]);
+    const [subjects, setSubjects] = useState<SubjectResponse[]>([]);
+    const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -57,6 +76,10 @@ export default function MajorsPage() {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [currentMajor, setCurrentMajor] = useState<MajorResponse | null>(null);
+    const [deleteTarget, setDeleteTarget] =
+        useState<MajorResponse | "selected" | null>(null);
+    const [deleteMode, setDeleteMode] = useState<DeleteMode>("SIMPLE");
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const [formData, setFormData] = useState<FormDataState>(EMPTY_FORM);
 
@@ -119,13 +142,21 @@ export default function MajorsPage() {
 
             setError("");
 
-            const [majorsData, departmentsData] = await Promise.all([
+            const [majorsData, departmentsData, groupsData, subjectsData, timetablesData] = await Promise.all([
                 majorApi.getMajors(),
                 departmentApi.getDepartments(),
+                groupApi.getGroups(),
+                subjectApi.getSubjects(),
+                timetableApi.getAllTimetables(),
             ]);
+            const timetableIds = timetablesData.map((timetable: TimetableResponse) => timetable.id);
+            const assignmentsData = await assignmentApi.getAssignmentsForTimetables(timetableIds);
 
             setMajors(majorsData);
             setDepartments(departmentsData);
+            setGroups(groupsData);
+            setSubjects(subjectsData);
+            setAssignments(assignmentsData);
         } catch (err) {
             setError(getApiErrorMessage(err, "Failed to load majors"));
         } finally {
@@ -255,51 +286,92 @@ export default function MajorsPage() {
         setIsEditModalOpen(true);
     };
 
-    const handleDelete = async (major: MajorResponse) => {
-        if (!confirm(`Delete major "${major.name}"?`)) return;
+    const getDeleteDependencyGroups = () => {
+        const targetIds =
+            deleteTarget === "selected"
+                ? selectedMajors
+                : deleteTarget
+                    ? [deleteTarget.id]
+                    : [];
 
-        try {
-            setError("");
+        if (targetIds.length === 0) return [];
 
-            await majorApi.deleteMajor(major.id);
-            await loadData();
-        } catch (err) {
-            setError(
-                getApiErrorMessage(
-                    err,
-                    "Failed to delete major. It may have related groups or subjects.",
+        const relatedGroups = groups
+            .filter((group) => targetIds.includes(group.majorId))
+            .map((group) => group.name);
+        const relatedSubjects = subjects
+            .filter((subject) => targetIds.includes(subject.majorId))
+            .map((subject) => `${subject.code} - ${subject.name}`);
+
+        return compactGroups([
+            { label: "Groups", items: relatedGroups },
+            { label: "Subjects", items: relatedSubjects },
+            {
+                label: "Assignments",
+                items: uniqueItems(
+                    assignments
+                        .filter((assignment) => targetIds.includes(assignment.majorId))
+                        .map(formatAssignment),
                 ),
-            );
-        }
+            },
+        ]);
     };
 
-    const handleDeleteSelected = async () => {
-        if (selectedMajors.length === 0) return;
+    const openDeleteDialog = (target: MajorResponse | "selected") => {
+        setError("");
+        setDeleteMode("SIMPLE");
+        setDeleteTarget(target);
+    };
 
-        if (!confirm(`Delete ${selectedMajors.length} selected majors?`)) return;
+    const closeDeleteDialog = () => {
+        if (deleteLoading) return;
+        setDeleteTarget(null);
+        setDeleteMode("SIMPLE");
+    };
+
+    const confirmDelete = async (mode: DeleteMode) => {
+        if (!deleteTarget) return;
+        const target = deleteTarget;
 
         try {
+            setDeleteLoading(true);
             setError("");
+            setDeleteTarget(null);
+            setDeleteMode("SIMPLE");
 
-            const results = await Promise.allSettled(
-                selectedMajors.map((id) => majorApi.deleteMajor(id)),
-            );
+            if (target === "selected") {
+                const results = await Promise.allSettled(
+                    selectedMajors.map((id) => majorApi.deleteMajor(id, mode)),
+                );
 
-            const failed = results.filter((result) => result.status === "rejected");
+                const failed = results.filter((result) => result.status === "rejected");
 
-            if (failed.length > 0) {
-                setError(`${failed.length} major(s) could not be deleted`);
+                if (failed.length > 0) {
+                    const failedIds = selectedMajors.filter(
+                        (_id, index) => results[index].status === "rejected",
+                    );
+                    toast.error(getDeleteRelatedRecordsMessage("major", failedIds));
+                }
+
+                setSelectedMajors([]);
+                if (failed.length === 0) {
+                    toast.success(getDeleteSuccessMessage("major", true));
+                }
+            } else {
+                await majorApi.deleteMajor(target.id, mode);
+                toast.success(getDeleteSuccessMessage("major"));
             }
 
-            setSelectedMajors([]);
             await loadData();
-        } catch (err) {
-            setError(
-                getApiErrorMessage(
-                    err,
-                    "Unexpected error while deleting majors",
+        } catch {
+            toast.error(
+                getDeleteRelatedRecordsMessage(
+                    "major",
+                    target === "selected" ? selectedMajors : target.id,
                 ),
             );
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
@@ -380,7 +452,7 @@ export default function MajorsPage() {
                         </div>
 
                         {selectedMajors.length > 0 && (
-                            <Button variant="destructive" onClick={handleDeleteSelected}>
+                            <Button variant="destructive" onClick={() => openDeleteDialog("selected")}>
                                 <Trash2 className="h-4 w-4" />
                                 Delete selected ({selectedMajors.length})
                             </Button>
@@ -501,7 +573,7 @@ export default function MajorsPage() {
                                                     variant="ghost"
                                                     size="icon-sm"
                                                     onClick={() =>
-                                                        handleDelete(major)
+                                                        openDeleteDialog(major)
                                                     }
                                                     aria-label="Delete major"
                                                     className="text-red-600 hover:bg-red-50 hover:text-red-700"
@@ -529,6 +601,19 @@ export default function MajorsPage() {
                     onSubmit={isCreateModalOpen ? handleCreateSubmit : handleEditSubmit}
                 />
             )}
+
+            <DeleteModeDialog
+                open={Boolean(deleteTarget)}
+                title={deleteTarget === "selected" ? "Delete selected majors?" : "Delete major?"}
+                description="Choose how related groups, subjects, assignments and schedule data should be handled."
+                entityName={deleteTarget === "selected" ? `${selectedMajors.length} majors` : deleteTarget?.name}
+                dependencyGroups={getDeleteDependencyGroups()}
+                selectedMode={deleteMode}
+                loading={deleteLoading}
+                onModeChange={setDeleteMode}
+                onCancel={closeDeleteDialog}
+                onConfirm={confirmDelete}
+            />
         </AppShell>
     );
 }

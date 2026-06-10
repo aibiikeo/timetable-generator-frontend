@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Archive, Eye, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -19,11 +20,27 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { facultyApi, timetableApi } from "@/lib";
+import {
+    assignmentApi,
+    compactGroups,
+    facultyApi,
+    formatAssignment,
+    formatLesson,
+    formatLunch,
+    getDeleteRelatedRecordsMessage,
+    getDeleteSuccessMessage,
+    lessonApi,
+    lunchApi,
+    timetableApi,
+    uniqueItems,
+} from "@/lib";
 import { TIMETABLE_FACULTY_FILTER_KEY } from "@/lib/constants";
 import type {
+    AssignmentResponse,
     DeleteMode,
     FacultyResponse,
+    LessonResponse,
+    LunchResponse,
     Semester,
     TimetableResponse,
     TimetableStatus,
@@ -93,6 +110,9 @@ function getDisplayTimetableName(name: string) {
 export default function TimetablesPage() {
     const [timetables, setTimetables] = useState<TimetableResponse[]>([]);
     const [faculties, setFaculties] = useState<FacultyResponse[]>([]);
+    const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
+    const [lessons, setLessons] = useState<LessonResponse[]>([]);
+    const [lunches, setLunches] = useState<LunchResponse[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
@@ -210,8 +230,7 @@ export default function TimetablesPage() {
                     (faculty) => faculty.name === DEFAULT_TIMETABLE_FACULTY_NAME,
                 );
 
-                setTimetables(
-                    timetableResult.value.map((timetable) => {
+                const normalizedTimetables = timetableResult.value.map((timetable) => {
                         if (
                             (timetable.facultyId !== null &&
                                 timetable.facultyId !== undefined) ||
@@ -225,10 +244,25 @@ export default function TimetablesPage() {
                             facultyId: engineeringFaculty.id,
                             facultyName: engineeringFaculty.name,
                         };
-                    }),
-                );
+                    });
+
+                setTimetables(normalizedTimetables);
+
+                const timetableIds = normalizedTimetables.map((timetable) => timetable.id);
+                const [assignmentsData, lessonsData, lunchesData] = await Promise.all([
+                    assignmentApi.getAssignmentsForTimetables(timetableIds),
+                    lessonApi.getLessonsForTimetables(timetableIds),
+                    lunchApi.getLunchesForTimetables(timetableIds),
+                ]);
+
+                setAssignments(assignmentsData);
+                setLessons(lessonsData);
+                setLunches(lunchesData);
             } else {
                 setTimetables([]);
+                setAssignments([]);
+                setLessons([]);
+                setLunches([]);
                 setError("Failed to load timetables");
             }
         } catch {
@@ -357,6 +391,46 @@ export default function TimetablesPage() {
         setDeleteMode("SIMPLE");
     };
 
+    const getDeleteDependencyGroups = () => {
+        const targetIds =
+            deleteTarget === "selected"
+                ? selectedTimetables
+                : deleteTarget
+                    ? [deleteTarget.id]
+                    : [];
+
+        if (targetIds.length === 0) return [];
+
+        return compactGroups([
+            {
+                label: "Assignments",
+                items: uniqueItems(
+                    assignments
+                        .filter(
+                            (assignment) =>
+                                assignment.timetableId !== undefined &&
+                                targetIds.includes(assignment.timetableId),
+                        )
+                        .map(formatAssignment),
+                ),
+            },
+            {
+                label: "Lessons",
+                items: uniqueItems(
+                    lessons
+                        .filter((lesson) => targetIds.includes(lesson.timetableId))
+                        .map(formatLesson),
+                ),
+            },
+            {
+                label: "Lunches",
+                items: lunches
+                    .filter((lunch) => targetIds.includes(lunch.timetableId))
+                    .map(formatLunch),
+            },
+        ]);
+    };
+
     const handleArchive = async (timetable: TimetableResponse) => {
         if (timetable.status === "ARCHIVED") return;
 
@@ -371,14 +445,18 @@ export default function TimetablesPage() {
 
     const handleConfirmDelete = async () => {
         if (!deleteTarget) return;
+        const target = deleteTarget;
+        const mode = deleteMode;
 
         try {
             setError("");
+            setDeleteTarget(null);
+            setDeleteMode("SIMPLE");
 
-            if (deleteTarget === "selected") {
+            if (target === "selected") {
                 const results = await Promise.allSettled(
                     selectedTimetables.map((id) =>
-                        timetableApi.deleteTimetable(id, deleteMode),
+                        timetableApi.deleteTimetable(id, mode),
                     ),
                 );
 
@@ -387,18 +465,29 @@ export default function TimetablesPage() {
                 );
 
                 if (failed.length > 0) {
-                    setError(`${failed.length} timetable(s) could not be deleted`);
+                    const failedIds = selectedTimetables.filter(
+                        (_id, index) => results[index].status === "rejected",
+                    );
+                    toast.error(getDeleteRelatedRecordsMessage("timetable", failedIds));
                 }
 
                 setSelectedTimetables([]);
+                if (failed.length === 0) {
+                    toast.success(getDeleteSuccessMessage("timetable", true));
+                }
             } else {
-                await timetableApi.deleteTimetable(deleteTarget.id, deleteMode);
+                await timetableApi.deleteTimetable(target.id, mode);
+                toast.success(getDeleteSuccessMessage("timetable"));
             }
 
-            setDeleteTarget(null);
             await loadData();
-        } catch (err) {
-            setError(getApiErrorMessage(err, "Failed to delete timetable"));
+        } catch {
+            toast.error(
+                getDeleteRelatedRecordsMessage(
+                    "timetable",
+                    target === "selected" ? selectedTimetables : target.id,
+                ),
+            );
         }
     };
 
@@ -689,6 +778,7 @@ export default function TimetablesPage() {
                         ? `${selectedTimetables.length} selected timetables`
                         : deleteTarget?.name
                 }
+                dependencyGroups={getDeleteDependencyGroups()}
                 selectedMode={deleteMode}
                 onModeChange={setDeleteMode}
                 onCancel={() => setDeleteTarget(null)}

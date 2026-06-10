@@ -8,6 +8,7 @@ import {
     Plus,
     Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -24,11 +25,8 @@ import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getStoredUserRole, loadCurrentUserByStoredEmail } from "@/lib/authRole";
-import {
-    UserResponse,
-    UserRole,
-    userApi,
-} from "@/lib";
+import { getDeleteRelatedRecordsMessage, getDeleteSuccessMessage, userApi } from "@/lib";
+import type { UserResponse, UserRole } from "@/lib";
 
 type SortField = "email" | "role";
 type SortDirection = "asc" | "desc";
@@ -190,6 +188,40 @@ export default function UsersPage() {
             );
         });
     }, [filteredByRole, sortField, sortDirection]);
+
+    const superAdminCount = useMemo(
+        () => users.filter((user) => user.role === "SUPER_ADMIN").length,
+        [users],
+    );
+
+    const selectedUsersSet = useMemo(
+        () => new Set(selectedUsers),
+        [selectedUsers],
+    );
+
+    const selectedSuperAdminCount = useMemo(
+        () =>
+            users.filter(
+                (user) =>
+                    selectedUsersSet.has(user.id) &&
+                    user.role === "SUPER_ADMIN",
+            ).length,
+        [selectedUsersSet, users],
+    );
+
+    const selectedDeleteWouldRemoveLastSuperAdmin =
+        selectedUsers.length > 0 &&
+        superAdminCount > 0 &&
+        selectedSuperAdminCount >= superAdminCount;
+
+    const isLastSuperAdmin = (user: UserResponse) =>
+        user.role === "SUPER_ADMIN" && superAdminCount <= 1;
+
+    const showSuperAdminDeleteWarning = (description: string) => {
+        toast.warning("Cannot delete last Super Admin", {
+            description,
+        });
+    };
 
     const loadData = async (initial = false) => {
         try {
@@ -387,20 +419,37 @@ export default function UsersPage() {
     };
 
     const handleDelete = async (user: UserResponse) => {
+        if (isLastSuperAdmin(user)) {
+            setError("");
+            showSuperAdminDeleteWarning(
+                "You cannot delete the last Super Admin. Create another Super Admin first, then try again.",
+            );
+            return;
+        }
+
         if (!confirm(`Delete user "${user.email}"?`)) return;
 
         try {
             setError("");
 
             await userApi.deleteUser(user.id);
+            toast.success(getDeleteSuccessMessage("user"));
             await loadData();
-        } catch (err) {
-            setError(getApiErrorMessage(err, "Failed to delete user"));
+        } catch {
+            toast.error(getDeleteRelatedRecordsMessage("user", user.id));
         }
     };
 
     const handleDeleteSelected = async () => {
         if (selectedUsers.length === 0) return;
+
+        if (selectedDeleteWouldRemoveLastSuperAdmin) {
+            setError("");
+            showSuperAdminDeleteWarning(
+                "This selection includes every Super Admin. Keep at least one Super Admin active before deleting users.",
+            );
+            return;
+        }
 
         if (!confirm(`Delete ${selectedUsers.length} selected users?`)) return;
 
@@ -416,13 +465,19 @@ export default function UsersPage() {
             );
 
             if (failed.length > 0) {
-                setError(`${failed.length} user(s) could not be deleted`);
+                const failedIds = selectedUsers.filter(
+                    (_id, index) => results[index].status === "rejected",
+                );
+                toast.error(getDeleteRelatedRecordsMessage("user", failedIds));
             }
 
             setSelectedUsers([]);
+            if (failed.length === 0) {
+                toast.success(getDeleteSuccessMessage("user", true));
+            }
             await loadData();
         } catch {
-            setError("Unexpected error while deleting users");
+            toast.error(getDeleteRelatedRecordsMessage("user", selectedUsers));
         }
     };
 
@@ -571,10 +626,10 @@ export default function UsersPage() {
 
                                         <tbody>
                                         {sortedUsers.map((user) => (
-                                            <tr
-                                                key={user.id}
-                                                className="border-b last:border-b-0 hover:bg-accent/50"
-                                            >
+                                                <tr
+                                                    key={user.id}
+                                                    className="border-b last:border-b-0 hover:bg-accent/50"
+                                                >
                                                 <td className="py-4">
                                                     <input
                                                         type="checkbox"
@@ -635,7 +690,7 @@ export default function UsersPage() {
                                                         </Button>
                                                     </div>
                                                 </td>
-                                            </tr>
+                                                </tr>
                                         ))}
                                         </tbody>
                                     </table>

@@ -6,6 +6,7 @@ import {
     Plus,
     Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -17,19 +18,33 @@ import {
     CardContent,
     CardHeader,
 } from "@/components/ui/card";
+import { DeleteModeDialog } from "@/components/ui/delete-mode-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+    AssignmentResponse,
+    DeleteMode,
     DepartmentResponse,
     FacultyResponse,
+    LessonResponse,
     MajorResponse,
     SubjectResponse,
+    TimetableResponse,
+    assignmentApi,
+    compactGroups,
     departmentApi,
     facultyApi,
+    formatAssignment,
+    formatLesson,
+    getDeleteRelatedRecordsMessage,
+    getDeleteSuccessMessage,
+    lessonApi,
     majorApi,
     subjectApi,
+    timetableApi,
+    uniqueItems,
 } from "@/lib";
 
 type SortField = "name" | "code" | "totalHours" | "hoursPerWeek";
@@ -56,6 +71,8 @@ export default function SubjectsPage() {
     const [majors, setMajors] = useState<MajorResponse[]>([]);
     const [faculties, setFaculties] = useState<FacultyResponse[]>([]);
     const [departments, setDepartments] = useState<DepartmentResponse[]>([]);
+    const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
+    const [lessons, setLessons] = useState<LessonResponse[]>([]);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -73,6 +90,10 @@ export default function SubjectsPage() {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [currentSubject, setCurrentSubject] =
         useState<SubjectResponse | null>(null);
+    const [deleteTarget, setDeleteTarget] =
+        useState<SubjectResponse | "selected" | null>(null);
+    const [deleteMode, setDeleteMode] = useState<DeleteMode>("SIMPLE");
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const [formData, setFormData] = useState<FormDataState>(EMPTY_FORM);
 
@@ -137,19 +158,26 @@ export default function SubjectsPage() {
 
             setError("");
 
-            const [subjectsData, majorsData, facultiesData, departmentsData] = await Promise.all([
+            const [subjectsData, majorsData, facultiesData, departmentsData, timetablesData] = await Promise.all([
                 subjectApi.getSubjects(),
                 majorApi.getMajors(),
                 facultyApi.getFaculties(),
                 departmentApi.getDepartments(),
+                timetableApi.getAllTimetables(),
+            ]);
+            const timetableIds = timetablesData.map((timetable: TimetableResponse) => timetable.id);
+            const [assignmentsData, lessonsData] = await Promise.all([
+                assignmentApi.getAssignmentsForTimetables(timetableIds),
+                lessonApi.getLessonsForTimetables(timetableIds),
             ]);
 
             setSubjects(subjectsData);
             setMajors(majorsData);
             setFaculties(facultiesData);
             setDepartments(departmentsData);
-        } catch (err) {
-            console.error("Error loading subjects:", err);
+            setAssignments(assignmentsData);
+            setLessons(lessonsData);
+        } catch {
             setError("Failed to load subjects");
         } finally {
             if (initial) setLoading(false);
@@ -258,7 +286,6 @@ export default function SubjectsPage() {
 
             await loadData();
         } catch (err: any) {
-            console.error("Error creating subject:", err);
             setError(err.response?.data?.message || "Failed to create subject");
         }
     };
@@ -286,7 +313,6 @@ export default function SubjectsPage() {
 
             await loadData();
         } catch (err: any) {
-            console.error("Error updating subject:", err);
             setError(err.response?.data?.message || "Failed to update subject");
         }
     };
@@ -306,50 +332,101 @@ export default function SubjectsPage() {
         setIsEditModalOpen(true);
     };
 
-    const handleDelete = async (subject: SubjectResponse) => {
-        if (!confirm(`Delete subject "${subject.name}"?`)) return;
+    const getDeleteDependencyGroups = () => {
+        const targets =
+            deleteTarget === "selected"
+                ? subjects.filter((subject) => selectedSubjects.includes(subject.id))
+                : deleteTarget
+                    ? [deleteTarget]
+                    : [];
 
-        try {
-            setError("");
+        if (targets.length === 0) return [];
 
-            await subjectApi.deleteSubject(subject.id);
-            await loadData();
-        } catch (err: any) {
-            console.error("Error deleting subject:", err);
-            setError(
-                err.response?.data?.message ||
-                "Failed to delete subject. It may have related assignments.",
-            );
-        }
+        const targetIds = new Set(targets.map((subject) => subject.id));
+
+        return compactGroups([
+            {
+                label: "Assignments",
+                items: uniqueItems(
+                    assignments
+                        .filter((assignment) => targetIds.has(assignment.subjectId))
+                        .map(formatAssignment),
+                ),
+            },
+            {
+                label: "Lessons",
+                items: uniqueItems(
+                    lessons
+                        .filter((lesson) =>
+                            assignments.some(
+                                (assignment) =>
+                                    targetIds.has(assignment.subjectId) &&
+                                    assignment.id === lesson.assignmentId,
+                            ),
+                        )
+                        .map(formatLesson),
+                ),
+            },
+        ]);
     };
 
-    const handleDeleteSelected = async () => {
-        if (selectedSubjects.length === 0) return;
+    const openDeleteDialog = (target: SubjectResponse | "selected") => {
+        setError("");
+        setDeleteMode("SIMPLE");
+        setDeleteTarget(target);
+    };
 
-        if (!confirm(`Delete ${selectedSubjects.length} selected subjects?`)) {
-            return;
-        }
+    const closeDeleteDialog = () => {
+        if (deleteLoading) return;
+        setDeleteTarget(null);
+        setDeleteMode("SIMPLE");
+    };
+
+    const confirmDelete = async (mode: DeleteMode) => {
+        if (!deleteTarget) return;
+        const target = deleteTarget;
 
         try {
+            setDeleteLoading(true);
             setError("");
+            setDeleteTarget(null);
+            setDeleteMode("SIMPLE");
 
-            const results = await Promise.allSettled(
-                selectedSubjects.map((id) => subjectApi.deleteSubject(id)),
-            );
+            if (target === "selected") {
+                const results = await Promise.allSettled(
+                    selectedSubjects.map((id) => subjectApi.deleteSubject(id, mode)),
+                );
 
-            const failed = results.filter(
-                (result) => result.status === "rejected",
-            );
+                const failed = results.filter(
+                    (result) => result.status === "rejected",
+                );
 
-            if (failed.length > 0) {
-                setError(`${failed.length} subject(s) could not be deleted`);
+                if (failed.length > 0) {
+                    const failedIds = selectedSubjects.filter(
+                        (_id, index) => results[index].status === "rejected",
+                    );
+                    toast.error(getDeleteRelatedRecordsMessage("subject", failedIds));
+                }
+
+                setSelectedSubjects([]);
+                if (failed.length === 0) {
+                    toast.success(getDeleteSuccessMessage("subject", true));
+                }
+            } else {
+                await subjectApi.deleteSubject(target.id, mode);
+                toast.success(getDeleteSuccessMessage("subject"));
             }
-
-            setSelectedSubjects([]);
 
             await loadData();
         } catch {
-            setError("Unexpected error while deleting subjects");
+            toast.error(
+                getDeleteRelatedRecordsMessage(
+                    "subject",
+                    target === "selected" ? selectedSubjects : target.id,
+                ),
+            );
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
@@ -460,7 +537,7 @@ export default function SubjectsPage() {
                         {selectedSubjects.length > 0 && (
                             <Button
                                 variant="destructive"
-                                onClick={handleDeleteSelected}
+                                onClick={() => openDeleteDialog("selected")}
                             >
                                 <Trash2 className="h-4 w-4" />
                                 Delete selected ({selectedSubjects.length})
@@ -582,7 +659,7 @@ export default function SubjectsPage() {
                                                     variant="ghost"
                                                     size="icon-sm"
                                                     onClick={() =>
-                                                        handleDelete(subject)
+                                                        openDeleteDialog(subject)
                                                     }
                                                     aria-label="Delete subject"
                                                     className="text-red-600 hover:bg-red-50 hover:text-red-700"
@@ -622,6 +699,19 @@ export default function SubjectsPage() {
                     }
                 />
             )}
+
+            <DeleteModeDialog
+                open={Boolean(deleteTarget)}
+                title={deleteTarget === "selected" ? "Delete selected subjects?" : "Delete subject?"}
+                description="Choose how assignments and generated schedule data should be handled."
+                entityName={deleteTarget === "selected" ? `${selectedSubjects.length} subjects` : deleteTarget ? `${deleteTarget.code} - ${deleteTarget.name}` : undefined}
+                dependencyGroups={getDeleteDependencyGroups()}
+                selectedMode={deleteMode}
+                loading={deleteLoading}
+                onModeChange={setDeleteMode}
+                onCancel={closeDeleteDialog}
+                onConfirm={confirmDelete}
+            />
         </AppShell>
     );
 }

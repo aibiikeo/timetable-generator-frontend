@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Edit, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -12,16 +13,26 @@ import {
     CardContent,
     CardHeader,
 } from "@/components/ui/card";
+import { DeleteModeDialog } from "@/components/ui/delete-mode-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+    DeleteMode,
     DepartmentResponse,
     FacultyResponse,
+    MajorResponse,
+    StudyGroupResponse,
+    SubjectResponse,
     departmentApi,
     facultyApi,
     getApiErrorMessage,
+    getDeleteRelatedRecordsMessage,
+    getDeleteSuccessMessage,
+    groupApi,
+    majorApi,
+    subjectApi,
 } from "@/lib";
 
 type SortField = "name" | "faculty";
@@ -40,6 +51,9 @@ const EMPTY_FORM: FormDataState = {
 export default function DepartmentsPage() {
     const [departments, setDepartments] = useState<DepartmentResponse[]>([]);
     const [faculties, setFaculties] = useState<FacultyResponse[]>([]);
+    const [majors, setMajors] = useState<MajorResponse[]>([]);
+    const [groups, setGroups] = useState<StudyGroupResponse[]>([]);
+    const [subjects, setSubjects] = useState<SubjectResponse[]>([]);
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -55,6 +69,10 @@ export default function DepartmentsPage() {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [currentDepartment, setCurrentDepartment] =
         useState<DepartmentResponse | null>(null);
+    const [deleteTarget, setDeleteTarget] =
+        useState<DepartmentResponse | "selected" | null>(null);
+    const [deleteMode, setDeleteMode] = useState<DeleteMode>("SIMPLE");
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const [formData, setFormData] = useState<FormDataState>(EMPTY_FORM);
 
@@ -111,13 +129,19 @@ export default function DepartmentsPage() {
 
             setError("");
 
-            const [departmentsData, facultiesData] = await Promise.all([
+            const [departmentsData, facultiesData, majorsData, groupsData, subjectsData] = await Promise.all([
                 departmentApi.getDepartments(),
                 facultyApi.getFaculties(),
+                majorApi.getMajors(),
+                groupApi.getGroups(),
+                subjectApi.getSubjects(),
             ]);
 
             setDepartments(departmentsData);
             setFaculties(facultiesData);
+            setMajors(majorsData);
+            setGroups(groupsData);
+            setSubjects(subjectsData);
         } catch (err) {
             setError(getApiErrorMessage(err, "Failed to load departments"));
         } finally {
@@ -239,53 +263,93 @@ export default function DepartmentsPage() {
         setIsEditModalOpen(true);
     };
 
-    const handleDelete = async (department: DepartmentResponse) => {
-        if (!confirm(`Delete department "${department.name}"?`)) return;
+    const getDeleteDependencyGroups = () => {
+        const targetIds =
+            deleteTarget === "selected"
+                ? selectedDepartments
+                : deleteTarget
+                    ? [deleteTarget.id]
+                    : [];
 
-        try {
-            setError("");
+        if (targetIds.length === 0) return [];
 
-            await departmentApi.deleteDepartment(department.id);
-            await loadData();
-        } catch (err) {
-            setError(
-                getApiErrorMessage(
-                    err,
-                    "Failed to delete department. It may have related majors or groups.",
-                ),
-            );
-        }
+        return [
+            {
+                label: "Majors",
+                items: majors
+                    .filter((major) => targetIds.includes(major.departmentId))
+                    .map((major) => major.shortName ? `${major.shortName} - ${major.name}` : major.name),
+            },
+            {
+                label: "Groups",
+                items: groups
+                    .filter((group) => targetIds.includes(group.departmentId))
+                    .map((group) => group.name),
+            },
+            {
+                label: "Subjects",
+                items: subjects
+                    .filter((subject) => targetIds.includes(subject.departmentId))
+                    .map((subject) => `${subject.code} - ${subject.name}`),
+            },
+        ].filter((group) => group.items.length > 0);
     };
 
-    const handleDeleteSelected = async () => {
-        if (selectedDepartments.length === 0) return;
+    const openDeleteDialog = (target: DepartmentResponse | "selected") => {
+        setError("");
+        setDeleteMode("SIMPLE");
+        setDeleteTarget(target);
+    };
 
-        if (!confirm(`Delete ${selectedDepartments.length} selected departments?`)) {
-            return;
-        }
+    const closeDeleteDialog = () => {
+        if (deleteLoading) return;
+        setDeleteTarget(null);
+        setDeleteMode("SIMPLE");
+    };
+
+    const confirmDelete = async (mode: DeleteMode) => {
+        if (!deleteTarget) return;
+        const target = deleteTarget;
 
         try {
+            setDeleteLoading(true);
             setError("");
+            setDeleteTarget(null);
+            setDeleteMode("SIMPLE");
 
-            const results = await Promise.allSettled(
-                selectedDepartments.map((id) => departmentApi.deleteDepartment(id)),
-            );
+            if (target === "selected") {
+                const results = await Promise.allSettled(
+                    selectedDepartments.map((id) => departmentApi.deleteDepartment(id, mode)),
+                );
 
-            const failed = results.filter((result) => result.status === "rejected");
+                const failed = results.filter((result) => result.status === "rejected");
 
-            if (failed.length > 0) {
-                setError(`${failed.length} department(s) could not be deleted`);
+                if (failed.length > 0) {
+                    const failedIds = selectedDepartments.filter(
+                        (_id, index) => results[index].status === "rejected",
+                    );
+                    toast.error(getDeleteRelatedRecordsMessage("department", failedIds));
+                }
+
+                setSelectedDepartments([]);
+                if (failed.length === 0) {
+                    toast.success(getDeleteSuccessMessage("department", true));
+                }
+            } else {
+                await departmentApi.deleteDepartment(target.id, mode);
+                toast.success(getDeleteSuccessMessage("department"));
             }
 
-            setSelectedDepartments([]);
             await loadData();
-        } catch (err) {
-            setError(
-                getApiErrorMessage(
-                    err,
-                    "Unexpected error while deleting departments",
+        } catch {
+            toast.error(
+                getDeleteRelatedRecordsMessage(
+                    "department",
+                    target === "selected" ? selectedDepartments : target.id,
                 ),
             );
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
@@ -366,7 +430,7 @@ export default function DepartmentsPage() {
                         </div>
 
                         {selectedDepartments.length > 0 && (
-                            <Button variant="destructive" onClick={handleDeleteSelected}>
+                            <Button variant="destructive" onClick={() => openDeleteDialog("selected")}>
                                 <Trash2 className="h-4 w-4" />
                                 Delete selected ({selectedDepartments.length})
                             </Button>
@@ -465,7 +529,7 @@ export default function DepartmentsPage() {
                                                     variant="ghost"
                                                     size="icon-sm"
                                                     onClick={() =>
-                                                        handleDelete(department)
+                                                        openDeleteDialog(department)
                                                     }
                                                     aria-label="Delete department"
                                                     className="text-red-600 hover:bg-red-50 hover:text-red-700"
@@ -501,6 +565,19 @@ export default function DepartmentsPage() {
                     }
                 />
             )}
+
+            <DeleteModeDialog
+                open={Boolean(deleteTarget)}
+                title={deleteTarget === "selected" ? "Delete selected departments?" : "Delete department?"}
+                description="Choose how related majors, groups, subjects and schedule data should be handled."
+                entityName={deleteTarget === "selected" ? `${selectedDepartments.length} departments` : deleteTarget?.name}
+                dependencyGroups={getDeleteDependencyGroups()}
+                selectedMode={deleteMode}
+                loading={deleteLoading}
+                onModeChange={setDeleteMode}
+                onCancel={closeDeleteDialog}
+                onConfirm={confirmDelete}
+            />
         </AppShell>
     );
 }

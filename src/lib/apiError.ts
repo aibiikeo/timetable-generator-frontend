@@ -122,3 +122,16 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
 
     return fallback;
 }
+
+export function getDeleteRelatedRecordsMessage(
+    entityName: string,
+    ids: number | number[],
+): string {
+    const idList = Array.isArray(ids) ? ids : [ids];
+
+    return `Cannot delete ${entityName} with id ${idList.join(", ")} because it has related records`;
+}
+
+export function getDeleteSuccessMessage(entityName: string, selected = false): string {
+    return selected ? `Selected ${entityName}s deleted` : `${entityName} deleted`;
+}

@@ -8,6 +8,7 @@ import {
     Plus,
     Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -26,6 +27,8 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     assignmentApi,
+    getDeleteRelatedRecordsMessage,
+    getDeleteSuccessMessage,
     lessonApi,
     roomApi,
     timetableApi,
@@ -280,7 +283,7 @@ export default function LessonsPage() {
             setError("");
 
             if (!publishedTimetable) {
-                setError("No published timetable found");
+                toast.error("No published timetable found");
                 return;
             }
 
@@ -352,10 +355,11 @@ export default function LessonsPage() {
             }
 
             await lessonApi.deleteLesson(publishedTimetable.id, lesson.id);
+            toast.success(getDeleteSuccessMessage("lesson"));
 
             await loadData();
-        } catch (err: any) {
-            setError(err.response?.data?.message || "Failed to delete lesson");
+        } catch {
+            toast.error(getDeleteRelatedRecordsMessage("lesson", lesson.id));
         }
     };
 
@@ -365,7 +369,7 @@ export default function LessonsPage() {
         if (!confirm(`Delete ${selectedLessons.length} selected lessons?`)) return;
 
         if (!publishedTimetable) {
-            setError("No published timetable found");
+            toast.error("No published timetable found");
             return;
         }
 
@@ -381,13 +385,19 @@ export default function LessonsPage() {
             const failed = results.filter((result) => result.status === "rejected");
 
             if (failed.length > 0) {
-                setError(`${failed.length} lesson(s) could not be deleted`);
+                const failedIds = selectedLessons.filter(
+                    (_id, index) => results[index].status === "rejected",
+                );
+                toast.error(getDeleteRelatedRecordsMessage("lesson", failedIds));
             }
 
             setSelectedLessons([]);
+            if (failed.length === 0) {
+                toast.success(getDeleteSuccessMessage("lesson", true));
+            }
             await loadData();
         } catch {
-            setError("Unexpected error while deleting lessons");
+            toast.error(getDeleteRelatedRecordsMessage("lesson", selectedLessons));
         }
     };
 
