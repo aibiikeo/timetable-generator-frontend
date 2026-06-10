@@ -184,8 +184,7 @@ export default function LessonsPage() {
             setLessons(lessonsData);
             setAssignments(assignmentsData);
             setRooms(roomsData);
-        } catch (err) {
-            console.error("Error loading published timetable lessons:", err);
+        } catch {
             setError("Failed to load lessons from published timetable");
         } finally {
             if (initial) setLoading(false);
@@ -292,7 +291,6 @@ export default function LessonsPage() {
 
             await loadData();
         } catch (err: any) {
-            console.error("Error creating lesson:", err);
             setError(err.response?.data?.message || "Failed to create lesson");
         }
     };
@@ -323,7 +321,6 @@ export default function LessonsPage() {
 
             await loadData();
         } catch (err: any) {
-            console.error("Error updating lesson:", err);
             setError(err.response?.data?.message || "Failed to update lesson");
         }
     };
@@ -358,7 +355,6 @@ export default function LessonsPage() {
 
             await loadData();
         } catch (err: any) {
-            console.error("Error deleting lesson:", err);
             setError(err.response?.data?.message || "Failed to delete lesson");
         }
     };

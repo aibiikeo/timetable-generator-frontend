@@ -23,7 +23,6 @@ import { Button } from "@/components/ui/button";
 import {
     Card,
     CardContent,
-    CardDescription,
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
@@ -65,6 +64,7 @@ const fallbackQuickActions: QuickActionOptionResponse[] = [
 ];
 
 const QUICK_ACTIONS_STORAGE_KEY = "quick-actions-settings";
+const LAST_WORKED_TIMETABLE_STORAGE_KEY = "last-worked-timetable-id";
 
 const quickActionIcons: Record<string, ComponentType<{ className?: string }>> = {
     OPEN_TIMETABLES: CalendarDays,
@@ -128,6 +128,41 @@ function getStoredQuickActionSettings() {
     }
 }
 
+function getStoredLastWorkedTimetableId() {
+    if (typeof window === "undefined") return null;
+
+    const raw = window.localStorage.getItem(LAST_WORKED_TIMETABLE_STORAGE_KEY);
+    const id = raw ? Number(raw) : NaN;
+
+    return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function getLatestActiveTimetable(timetables: TimetableResponse[]) {
+    return [...timetables]
+        .filter((timetable) => timetable.status !== "ARCHIVED")
+        .sort((a, b) => {
+            return (
+                new Date(b.createdAt).getTime() -
+                new Date(a.createdAt).getTime()
+            );
+        })[0] ?? null;
+}
+
+function getCurrentTimetable(
+    timetables: TimetableResponse[],
+    lastWorkedTimetableId: number | null,
+) {
+    const lastWorkedTimetable = lastWorkedTimetableId
+        ? timetables.find((timetable) => timetable.id === lastWorkedTimetableId)
+        : null;
+
+    if (lastWorkedTimetable && lastWorkedTimetable.status !== "ARCHIVED") {
+        return lastWorkedTimetable;
+    }
+
+    return getLatestActiveTimetable(timetables);
+}
+
 function buildLocalQuickActionSettings(
     autoEnabled: boolean,
     selectedActionIds: string[],
@@ -155,17 +190,11 @@ export default function HomePage() {
         useState<QuickActionSettingsResponse>(getFallbackSettings);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [savingQuickActions, setSavingQuickActions] = useState(false);
+    const [lastWorkedTimetableId, setLastWorkedTimetableId] = useState<number | null>(null);
 
     const currentTimetable = useMemo(() => {
-        return [...timetables]
-            .filter((timetable) => timetable.status !== "ARCHIVED")
-            .sort((a, b) => {
-                return (
-                    new Date(b.createdAt).getTime() -
-                    new Date(a.createdAt).getTime()
-                );
-            })[0] ?? null;
-    }, [timetables]);
+        return getCurrentTimetable(timetables, lastWorkedTimetableId);
+    }, [lastWorkedTimetableId, timetables]);
 
     const requiredLessons = useMemo(() => {
         if (currentTimetable?.totalRequiredLessons) {
@@ -189,17 +218,15 @@ export default function HomePage() {
                 setCurrentError("");
 
                 const timetableData = await timetableApi.getAllTimetables();
-                const current = [...timetableData]
-                    .filter((timetable) => timetable.status !== "ARCHIVED")
-                    .sort((a, b) => {
-                        return (
-                            new Date(b.createdAt).getTime() -
-                            new Date(a.createdAt).getTime()
-                        );
-                    })[0] ?? null;
+                const storedLastWorkedTimetableId = getStoredLastWorkedTimetableId();
+                const current = getCurrentTimetable(
+                    timetableData,
+                    storedLastWorkedTimetableId,
+                );
 
                 if (!mounted) return;
 
+                setLastWorkedTimetableId(storedLastWorkedTimetableId);
                 setTimetables(timetableData);
 
                 if (!current) {
@@ -359,12 +386,11 @@ export default function HomePage() {
 
     async function handleQuickAction(action: QuickActionOptionResponse) {
         router.push(getQuickActionHref(action.id));
-        try {
-            const updated = await quickActionApi.recordUsage(action.id);
-            if (updated.autoEnabled) setQuickActionSettings(updated);
-        } catch {
-            // Quick actions still navigate when usage tracking is unavailable.
-        }
+        void quickActionApi.recordUsage(action.id)
+            .then((updated) => {
+                if (updated.autoEnabled) setQuickActionSettings(updated);
+            })
+            .catch(() => undefined);
     }
 
     function toggleQuickAction(actionId: string) {
@@ -387,11 +413,6 @@ export default function HomePage() {
                         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                             <div>
                                 <CardTitle>Current timetable</CardTitle>
-                                {!currentTimetable && (
-                                    <CardDescription>
-                                        Create a timetable to start scheduling.
-                                    </CardDescription>
-                                )}
                             </div>
 
                             <Button

@@ -18,8 +18,9 @@ import {
     getStoredUserRole,
     loadCurrentUserByStoredEmail,
 } from "@/lib/authRole";
+import { TIMETABLE_FACULTY_FILTER_KEY } from "@/lib/constants";
 import type { UserRole } from "@/lib/types";
-import { usePageSearch } from "@/components/layout/SearchContext";
+import { useSearchControls } from "@/components/layout/SearchContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +32,7 @@ interface TopbarProps {
 export function Topbar({ onMenuClick }: TopbarProps) {
     const router = useRouter();
     const { logout } = useAuth();
-    const { query, placeholder, setQuery } = usePageSearch();
+    const { enabled: searchEnabled, query, placeholder, setQuery } = useSearchControls();
 
     const [email, setEmail] = useState<string | null>(null);
     const [role, setRole] = useState<UserRole | null>(null);
@@ -52,8 +53,9 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                         setEmail(user.email);
                         setRole(user.role);
                     }
-                } catch (error) {
-                    console.error("Failed to load current user in topbar:", error);
+                } catch {
+                    setEmail("");
+                    setRole(null);
                 }
             }
         };
@@ -68,6 +70,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
         if (typeof window !== "undefined") {
             localStorage.removeItem("userEmail");
+            localStorage.removeItem(TIMETABLE_FACULTY_FILTER_KEY);
         }
 
         router.push("/login");
@@ -85,15 +88,17 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                 <Menu className="h-5 w-5" />
             </Button>
 
-            <div className="hidden w-full max-w-md items-center gap-2 rounded-xl border border-input bg-card px-3 shadow-sm md:flex">
-                <Search className="h-4 w-4 text-muted-foreground" />
-                <Input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                    placeholder={placeholder}
-                />
-            </div>
+            {searchEnabled ? (
+                <div className="hidden w-full max-w-md items-center gap-2 rounded-xl border border-input bg-card px-3 shadow-sm md:flex">
+                    <Search className="h-4 w-4 text-muted-foreground" />
+                    <Input
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                        className="h-9 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                        placeholder={placeholder}
+                    />
+                </div>
+            ) : null}
 
             <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
                 <Button variant="outline" size="sm" asChild className="hidden sm:inline-flex">

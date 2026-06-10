@@ -11,10 +11,8 @@ export default function HomePage() {
         const token = api.getAccessToken();
 
         if (token) {
-            console.log('[Redirect] User authenticated, redirecting to home');
             router.push('/home');
         } else {
-            console.log('[Redirect] No authentication, redirecting to login');
             router.push('/login');
         }
     }, [router]);

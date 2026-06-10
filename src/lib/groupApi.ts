@@ -72,8 +72,6 @@ export const groupApi = {
         const response = await apiClient.get<FacultyResponse[]>("/api/faculties");
         return response.data;
     },
-
-    // Backward-compatible aliases
     getAllGroups: async (): Promise<StudyGroupResponse[]> => {
         return groupApi.getGroups();
     },

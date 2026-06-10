@@ -20,6 +20,7 @@ import { FilterSelect } from "@/components/ui/filter-select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { facultyApi, timetableApi } from "@/lib";
+import { TIMETABLE_FACULTY_FILTER_KEY } from "@/lib/constants";
 import type {
     DeleteMode,
     FacultyResponse,
@@ -96,7 +97,10 @@ export default function TimetablesPage() {
     const [error, setError] = useState("");
 
     const { query: searchQuery } = usePageSearch("Search timetables on this page...");
-    const [facultyFilter, setFacultyFilter] = useState("");
+    const [facultyFilter, setFacultyFilter] = useState(() => {
+        if (typeof window === "undefined") return "";
+        return window.localStorage.getItem(TIMETABLE_FACULTY_FILTER_KEY) || "";
+    });
     const [selectedTimetables, setSelectedTimetables] = useState<number[]>([]);
 
     const [sortField, setSortField] = useState<SortField>("createdAt");
@@ -111,6 +115,23 @@ export default function TimetablesPage() {
     useEffect(() => {
         void loadData(true);
     }, []);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        if (facultyFilter) {
+            window.localStorage.setItem(TIMETABLE_FACULTY_FILTER_KEY, facultyFilter);
+        } else {
+            window.localStorage.removeItem(TIMETABLE_FACULTY_FILTER_KEY);
+        }
+    }, [facultyFilter]);
+
+    useEffect(() => {
+        if (!facultyFilter || faculties.length === 0) return;
+
+        const exists = faculties.some((faculty) => faculty.id.toString() === facultyFilter);
+        if (!exists) setFacultyFilter("");
+    }, [faculties, facultyFilter]);
 
     const filteredTimetables = useMemo(() => {
         if (!searchQuery.trim()) return timetables;
@@ -133,7 +154,8 @@ export default function TimetablesPage() {
         return filteredTimetables.filter((timetable) => {
             const matchesFaculty =
                 facultyFilter !== "" &&
-                timetable.facultyId != null &&
+                timetable.facultyId !== null &&
+                timetable.facultyId !== undefined &&
                 timetable.facultyId.toString() === facultyFilter;
 
             return matchesFaculty;
@@ -190,7 +212,11 @@ export default function TimetablesPage() {
 
                 setTimetables(
                     timetableResult.value.map((timetable) => {
-                        if (timetable.facultyId != null || !engineeringFaculty) {
+                        if (
+                            (timetable.facultyId !== null &&
+                                timetable.facultyId !== undefined) ||
+                            !engineeringFaculty
+                        ) {
                             return timetable;
                         }
 
@@ -313,11 +339,6 @@ export default function TimetablesPage() {
                 academicYearStart: Number(formData.academicYearStart),
                 semester: formData.semester,
                 facultyId: Number(formData.facultyId),
-                generationSettings: {
-                    avoidSaturday: true,
-                    avoidLateLessons: true,
-                    maxLessonsPerDay: 4,
-                },
             });
 
             setIsCreateModalOpen(false);
@@ -493,7 +514,6 @@ export default function TimetablesPage() {
                     ) : sortedTimetables.length === 0 ? (
                         <EmptyState
                             title="No timetables found"
-                            description="Create a timetable to start scheduling."
                             actionLabel="New timetable"
                             onAction={openCreateModal}
                         />

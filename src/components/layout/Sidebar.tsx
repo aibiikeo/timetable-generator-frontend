@@ -28,9 +28,7 @@ export function Sidebar({ collapsed, onToggle, className }: SidebarProps) {
             .then((user) => {
                 if (user) setRole(user.role);
             })
-            .catch((error) => {
-                console.error("Failed to load role for sidebar:", error);
-            });
+            .catch(() => undefined);
     }, [role]);
 
     const visibleItems = useMemo(() => {

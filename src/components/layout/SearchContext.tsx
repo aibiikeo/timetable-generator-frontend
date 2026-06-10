@@ -12,8 +12,10 @@ import { usePathname } from "next/navigation";
 interface SearchContextValue {
     query: string;
     placeholder: string;
+    enabled: boolean;
     setQuery: (query: string) => void;
     setPlaceholder: (placeholder: string) => void;
+    setEnabled: (enabled: boolean) => void;
 }
 
 const DEFAULT_PLACEHOLDER = "Search current page...";
@@ -24,19 +26,23 @@ export function SearchProvider({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const [query, setQuery] = useState("");
     const [placeholder, setPlaceholder] = useState(DEFAULT_PLACEHOLDER);
+    const [enabled, setEnabled] = useState(false);
 
     useEffect(() => {
         setQuery("");
+        setEnabled(false);
     }, [pathname]);
 
     const value = useMemo(
         () => ({
             query,
             placeholder,
+            enabled,
             setQuery,
             setPlaceholder,
+            setEnabled,
         }),
-        [placeholder, query],
+        [enabled, placeholder, query],
     );
 
     return (
@@ -51,12 +57,28 @@ export function usePageSearch(placeholder?: string) {
         throw new Error("usePageSearch must be used inside SearchProvider");
     }
 
-    useEffect(() => {
-        if (!placeholder) return;
+    const { setEnabled, setPlaceholder } = context;
 
-        context.setPlaceholder(placeholder);
-        return () => context.setPlaceholder(DEFAULT_PLACEHOLDER);
-    }, [context.setPlaceholder, placeholder]);
+    useEffect(() => {
+        setEnabled(true);
+        if (placeholder) {
+            setPlaceholder(placeholder);
+        }
+        return () => {
+            setEnabled(false);
+            setPlaceholder(DEFAULT_PLACEHOLDER);
+        };
+    }, [placeholder, setEnabled, setPlaceholder]);
+
+    return context;
+}
+
+export function useSearchControls() {
+    const context = useContext(SearchContext);
+
+    if (!context) {
+        throw new Error("useSearchControls must be used inside SearchProvider");
+    }
 
     return context;
 }

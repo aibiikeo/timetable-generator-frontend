@@ -1,4 +1,3 @@
-// ====================== ENUMS ======================
 
 export type UserRole = "SUPER_ADMIN" | "ADMIN";
 
@@ -30,8 +29,6 @@ export type GenerationMode = "NEW" | "APPEND";
 
 export type Degree = "BACHELOR" | "MASTER" | "PHD" | "SPECIALIST";
 
-// ====================== AUTH ======================
-
 export interface LoginRequest {
     email: string;
     password: string;
@@ -47,8 +44,6 @@ export interface AuthResponse {
     expires_in: number;
 }
 
-// ====================== USERS ======================
-
 export interface UserRequest {
     email: string;
     password: string;
@@ -61,8 +56,6 @@ export interface UserResponse {
     role: UserRole;
 }
 
-// ====================== FACULTY ======================
-
 export interface FacultyRequest {
     name: string;
 }
@@ -71,8 +64,6 @@ export interface FacultyResponse {
     id: number;
     name: string;
 }
-
-// ====================== DEPARTMENT ======================
 
 export interface DepartmentRequest {
     name: string;
@@ -85,8 +76,6 @@ export interface DepartmentResponse {
     facultyId: number;
     facultyName: string;
 }
-
-// ====================== MAJOR ======================
 
 export interface MajorRequest {
     name: string;
@@ -103,8 +92,6 @@ export interface MajorResponse {
     facultyId: number;
     facultyName: string;
 }
-
-// ====================== STUDY GROUP ======================
 
 export interface StudyGroupRequest {
     name: string;
@@ -128,8 +115,6 @@ export interface StudyGroupResponse {
     facultyName: string;
 }
 
-// ====================== ROOM ======================
-
 export interface RoomRequest {
     name: string;
     capacity: number;
@@ -143,8 +128,6 @@ export interface RoomResponse {
     type: RoomType;
 }
 
-// ====================== TEACHER ======================
-
 export interface TeacherRequest {
     fullName: string;
 }
@@ -153,8 +136,6 @@ export interface TeacherResponse {
     id: number;
     fullName: string;
 }
-
-// ====================== SUBJECT ======================
 
 export interface SubjectRequest {
     name: string;
@@ -179,8 +160,6 @@ export interface SubjectResponse {
     facultyName: string;
 }
 
-// ====================== TIME SLOT ======================
-
 export interface TimeSlotRequest {
     dayOfWeek?: DayOfWeek;
     order: number;
@@ -197,12 +176,7 @@ export interface TimeSlotResponse {
     endTime: string;
     description?: string;
 }
-
-// Backward-compatible alias.
-// Later we should replace imports of TimeSlot with TimeSlotResponse.
 export type TimeSlot = TimeSlotResponse;
-
-// ====================== LUNCH ======================
 
 export interface LunchRequest {
     timetableId: number;
@@ -222,8 +196,6 @@ export interface LunchResponse {
     endTime: string;
     manual: boolean;
 }
-
-// ====================== ASSIGNMENT ======================
 
 export interface TimeSlotExclusion {
     day: DayOfWeek;
@@ -277,14 +249,11 @@ export interface AssignmentResponse {
     facultyName: string;
 }
 
-// ====================== TIMETABLE ======================
-
 export interface TimetableRequest {
     name: string;
     academicYearStart: number;
     semester: Semester;
     facultyId: number;
-    generationSettings: Record<string, unknown>;
 }
 
 export interface TimetableResponse {
@@ -298,14 +267,11 @@ export interface TimetableResponse {
     version: number;
     createdAt: string;
     status: TimetableStatus;
-    generationSettings: Record<string, unknown>;
     conflictReport: Record<string, unknown> | null;
     assignments: AssignmentResponse[];
     totalLessons: number;
     totalRequiredLessons: number;
 }
-
-// ====================== LESSON ======================
 
 export interface LessonRequest {
     assignmentId: number;
@@ -335,8 +301,6 @@ export interface LessonResponse {
     facultyId: number;
     facultyName: string;
 }
-
-// ====================== PUBLIC AIU TIMETABLE ======================
 
 export interface PublicFilterOptionResponse {
     id: number;
@@ -371,6 +335,7 @@ export interface PublicTimetableScheduleResponse {
     timetable: TimetableResponse | null;
     totalLessons: number;
     lessons: PublicTimetableLessonResponse[];
+    lunches?: LunchResponse[];
 }
 
 export interface PublicTimetableFilterOptionsResponse {
@@ -392,8 +357,6 @@ export interface PublicTimetableQuery {
     dayOfWeek?: DayOfWeek;
 }
 
-// ====================== GENERATION ======================
-
 export interface UnplacedLesson {
     assignmentId: number;
     subjectName?: string | null;
@@ -411,8 +374,6 @@ export interface GenerationResponse {
     status: TimetableStatus;
     failedAssignments: UnplacedLesson[];
 }
-
-// ====================== QUICK ACTIONS ======================
 
 export interface QuickActionOptionResponse {
     id: string;
@@ -433,8 +394,6 @@ export interface QuickActionSettingsResponse {
     selectedActions: QuickActionOptionResponse[];
     availableActions: QuickActionOptionResponse[];
 }
-
-// ====================== ERROR ======================
 
 export interface ApiError {
     status?: number;

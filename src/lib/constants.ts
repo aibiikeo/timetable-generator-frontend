@@ -1,4 +1,4 @@
-import { DayOfWeek } from './types';
+import type { DayOfWeek } from './types';
 
 export const DAYS_OF_WEEK: DayOfWeek[] = [
     'MONDAY',
@@ -25,3 +25,5 @@ export const LESSON_COLORS = [
     '#B3E5FC', '#B2DFDB', '#C8E6C9', '#F8BBD0', '#E1BEE7',
     '#D1C4E9', '#BBDEFB'
 ];
+
+export const TIMETABLE_FACULTY_FILTER_KEY = 'timetable-faculty-filter';

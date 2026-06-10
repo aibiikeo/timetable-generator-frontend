@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import {
     Card,
     CardContent,
-    CardDescription,
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
@@ -49,16 +48,13 @@ export default function LoginPage() {
                 const user = await userApi.getUser(userId);
 
                 setStoredUserRole(user.role);
-            } catch (roleError) {
-                console.error("Failed to load user role:", roleError);
-                setError("Login succeeded, but role could not be loaded");
+            } catch {
+                setError("Could not load user role");
                 return;
             }
 
             router.push("/home");
         } catch (err: any) {
-            console.warn("[Login failed]", err.response?.status);
-
             if (err.response?.status === 401) {
                 setError("Invalid email or password");
                 setPassword("");
@@ -95,9 +91,6 @@ export default function LoginPage() {
                         <CardTitle className="text-2xl">
                             AIU Timetable Scheduling System
                         </CardTitle>
-                        <CardDescription className="mt-2">
-                            Sign in to manage university schedules.
-                        </CardDescription>
                     </div>
                 </CardHeader>
 

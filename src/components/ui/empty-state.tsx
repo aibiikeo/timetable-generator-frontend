@@ -14,7 +14,6 @@ interface EmptyStateProps {
 
 export function EmptyState({
                                title,
-                               description,
                                icon,
                                actionLabel,
                                onAction,
@@ -32,12 +31,6 @@ export function EmptyState({
             </div>
 
             <h3 className="text-base font-semibold text-foreground">{title}</h3>
-
-            {description && (
-                <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-                    {description}
-                </p>
-            )}
 
             {actionLabel && onAction && (
                 <Button className="mt-6" onClick={onAction}>

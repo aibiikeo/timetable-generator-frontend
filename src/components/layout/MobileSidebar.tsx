@@ -27,9 +27,7 @@ export function MobileSidebar({ open, onClose }: MobileSidebarProps) {
             .then((user) => {
                 if (user) setRole(user.role);
             })
-            .catch((error) => {
-                console.error("Failed to load role for mobile sidebar:", error);
-            });
+            .catch(() => undefined);
     }, [role]);
 
     const visibleItems = useMemo(() => {

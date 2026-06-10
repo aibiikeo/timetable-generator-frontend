@@ -1,9 +1,9 @@
-// src/lib/api.ts
 import axios, {
     AxiosError,
     AxiosResponse,
     InternalAxiosRequestConfig,
 } from "axios";
+import { TIMETABLE_FACULTY_FILTER_KEY } from "./constants";
 import {
     ApiError,
     AuthResponse,
@@ -56,6 +56,7 @@ const clearTokens = () => {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem("userEmail");
+    localStorage.removeItem(TIMETABLE_FACULTY_FILTER_KEY);
 };
 
 const refreshAccessToken = async () => {
