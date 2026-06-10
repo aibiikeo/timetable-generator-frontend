@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, type ReactNode, type WheelEvent } from "react";
-import { CalendarDays, DoorOpen, Pencil, Plus, Trash2, UserRound } from "lucide-react";
+import { CalendarDays, CalendarPlus, DoorOpen, Pencil, Plus, Trash2, UserRound, Utensils } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type {
@@ -24,10 +24,12 @@ interface TimetableGridProps {
     density?: GridDensity | "comfortable";
     zoom?: number;
     onZoomChange?: (zoom: number) => void;
-    onCellClick?: (group: StudyGroupResponse, slot: TimeSlot, day?: DayOfWeek) => void;
+    onCellClick?: (group: StudyGroupResponse, slot: TimeSlot, day?: DayOfWeek, type?: "lesson" | "lunch") => void;
     onLessonClick?: (lesson: LessonResponse) => void;
     onLessonEdit?: (lesson: LessonResponse) => void;
     onLessonDelete?: (lesson: LessonResponse) => void;
+    onLunchEdit?: (lunch: LunchResponse) => void;
+    onLunchDelete?: (lunch: LunchResponse) => void;
     onTimeSlotDoubleClick?: (slot: TimeSlot) => void;
 }
 
@@ -251,28 +253,92 @@ function LessonCard({
     );
 }
 
-function LunchCell() {
+function LunchCell({
+    lunch,
+    onEdit,
+    onDelete,
+}: {
+    lunch: LunchResponse;
+    onEdit?: () => void;
+    onDelete?: () => void;
+}) {
     return (
-        <div className="flex h-full min-h-full w-full items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 p-3 text-center text-amber-900">
+        <div className="group relative flex h-full min-h-full w-full items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 p-3 text-center text-amber-900">
             <div className="text-sm font-semibold">Lunch</div>
+
+            <div className="absolute right-2 top-2 hidden gap-1 rounded-xl bg-white/80 p-1 shadow-sm backdrop-blur group-hover:flex group-focus-within:flex">
+                <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Edit lunch block"
+                    title={`${formatTime(lunch.startTime)}-${formatTime(lunch.endTime)}`}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onEdit?.();
+                    }}
+                >
+                    <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Delete lunch block"
+                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        onDelete?.();
+                    }}
+                >
+                    <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+            </div>
         </div>
     );
 }
 
-function EmptyCell({ config, onClick }: { config: ReturnType<typeof getScaledConfig>; onClick?: () => void }) {
+function EmptyCell({
+    config,
+    onCreateLesson,
+    onCreateLunch,
+}: {
+    config: ReturnType<typeof getScaledConfig>;
+    onCreateLesson?: () => void;
+    onCreateLunch?: () => void;
+}) {
     return (
-        <button
-            type="button"
-            onClick={onClick}
-            title="Create lesson"
+        <div
             className={[
-                "group flex h-full min-h-full w-full items-center justify-center rounded-2xl border border-dashed border-border bg-card/60 text-muted-foreground outline-none transition",
-                "hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus-visible:ring-2 focus-visible:ring-ring",
+                "group relative flex h-full min-h-full w-full items-center justify-center rounded-2xl border border-dashed border-border bg-card/60 text-muted-foreground outline-none transition",
+                "hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus-within:ring-2 focus-within:ring-ring",
                 config.cardPadding,
             ].join(" ")}
         >
-            <Plus className="h-5 w-5 opacity-40 transition group-hover:scale-110 group-hover:opacity-100" />
-        </button>
+            <Plus className="h-5 w-5 opacity-40 transition group-hover:scale-110 group-hover:opacity-10 group-focus-within:opacity-10" />
+            <div className="absolute inset-0 flex items-center justify-center gap-2 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+                <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="outline"
+                    aria-label="Create lesson"
+                    title="Create lesson"
+                    onClick={onCreateLesson}
+                >
+                    <CalendarPlus className="h-4 w-4" />
+                </Button>
+                <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="outline"
+                    aria-label="Create lunch block"
+                    title="Create lunch block"
+                    onClick={onCreateLunch}
+                >
+                    <Utensils className="h-4 w-4" />
+                </Button>
+            </div>
+        </div>
     );
 }
 
@@ -382,6 +448,8 @@ export default function TimetableGrid({
     onLessonClick,
     onLessonEdit,
     onLessonDelete,
+    onLunchEdit,
+    onLunchDelete,
     onTimeSlotDoubleClick,
 }: TimetableGridProps) {
     const normalizedDensity = normalizeDensity(density);
@@ -425,7 +493,19 @@ export default function TimetableGrid({
 
             cells.push(
                 <td key={`${day || "single"}-${group.id}-${slot.id}`} style={{ minWidth: config.slotWidth, height: config.cellHeight, padding: config.cellPadding }} className="border-b border-r border-border bg-background/40 align-top last:border-r-0">
-                    {lunch ? <LunchCell /> : <EmptyCell config={config} onClick={() => onCellClick?.(group, slot, day)} />}
+                    {lunch ? (
+                        <LunchCell
+                            lunch={lunch}
+                            onEdit={() => onLunchEdit?.(lunch)}
+                            onDelete={() => onLunchDelete?.(lunch)}
+                        />
+                    ) : (
+                        <EmptyCell
+                            config={config}
+                            onCreateLesson={() => onCellClick?.(group, slot, day, "lesson")}
+                            onCreateLunch={() => onCellClick?.(group, slot, day, "lunch")}
+                        />
+                    )}
                 </td>,
             );
             slotIndex += 1;

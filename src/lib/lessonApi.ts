@@ -23,6 +23,18 @@ export const lessonApi = {
         return response.data;
     },
 
+    getLessonsForTimetables: async (
+        timetableIds: number[],
+    ): Promise<LessonResponse[]> => {
+        const results = await Promise.all(
+            timetableIds.map((timetableId) =>
+                lessonApi.getLessonsByTimetable(timetableId),
+            ),
+        );
+
+        return results.flat();
+    },
+
     createLesson: async (
         timetableId: number,
         data: LessonRequest,

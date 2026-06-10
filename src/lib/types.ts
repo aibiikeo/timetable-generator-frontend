@@ -219,6 +219,7 @@ export interface AssignmentRequest {
 
 export interface AssignmentResponse {
     id: number;
+    timetableId?: number;
     subjectId: number;
     subjectName: string;
     teacherId: number;

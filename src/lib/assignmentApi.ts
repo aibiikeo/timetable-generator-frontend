@@ -1,5 +1,5 @@
 import apiClient from "./api";
-import type { AssignmentRequest, AssignmentResponse } from "./types";
+import type { AssignmentRequest, AssignmentResponse, DeleteMode } from "./types";
 
 export const assignmentApi = {
     getAssignmentsByTimetable: async (
@@ -21,6 +21,23 @@ export const assignmentApi = {
         );
 
         return response.data;
+    },
+
+    getAssignmentsForTimetables: async (
+        timetableIds: number[],
+    ): Promise<AssignmentResponse[]> => {
+        const results = await Promise.all(
+            timetableIds.map((timetableId) =>
+                assignmentApi.getAssignmentsByTimetable(timetableId).then((assignments) =>
+                    assignments.map((assignment) => ({
+                        ...assignment,
+                        timetableId,
+                    })),
+                ),
+            ),
+        );
+
+        return results.flat();
     },
 
     createAssignment: async (
@@ -51,9 +68,10 @@ export const assignmentApi = {
     deleteAssignment: async (
         timetableId: number,
         assignmentId: number,
+        mode: DeleteMode = "SIMPLE",
     ): Promise<void> => {
         await apiClient.delete(
-            `/api/timetables/${timetableId}/assignments/${assignmentId}`,
+            `/api/timetables/${timetableId}/assignments/${assignmentId}?mode=${mode}`,
         );
     },
 };

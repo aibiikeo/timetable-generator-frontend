@@ -36,9 +36,14 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     assignmentApi,
+    compactGroups,
     departmentApi,
     facultyApi,
+    formatAssignment,
+    formatLesson,
+    formatLunch,
     getApiErrorMessage,
+    getDeleteRelatedRecordsMessage,
     groupApi,
     lessonApi,
     lunchApi,
@@ -47,6 +52,7 @@ import {
     teacherApi,
     timeSlotApi,
     timetableApi,
+    uniqueItems,
 } from "@/lib";
 import { DAYS_OF_WEEK } from "@/lib/constants";
 import type {
@@ -73,13 +79,11 @@ import type {
 
 import AssignmentForm from "./assignments/components/AssignmentForm";
 import AssignmentsDrawer from "./components/AssignmentsDrawer";
-import DiagnosticsPanel from "./components/DiagnosticsPanel";
 import ExportModal from "./components/ExportModal";
 import GenerateOptionsModal from "./components/GenerateOptionsModal";
 import GenerationResultModal from "./components/GenerationResultModal";
 import LessonDetailsModal from "./components/LessonDetailsModal";
 import LessonFormModal from "./components/LessonFormModal";
-import LunchSettingsPanel from "./components/LunchSettingsPanel";
 import ManualPlacementModal from "./components/ManualPlacementModal";
 import TimeSlotFormModal from "./components/TimeSlotFormModal";
 import TimetableGrid from "./components/TimetableGrid";
@@ -93,7 +97,6 @@ type DepartmentOption = {
 
 type FilterValue = number | "ALL";
 type GridDensity = "compact" | "medium" | "large";
-type MainTab = "schedule" | "diagnostics" | "settings";
 type AssignmentDrawerFilter = "ALL" | "SCHEDULED" | "PARTIAL" | "UNPLACED";
 type RunningGenerationAction = "generate" | "retry" | null;
 
@@ -102,6 +105,7 @@ type DeleteTarget =
     | { type: "lesson"; entityName: string; lesson: LessonResponse }
     | { type: "assignment"; entityName: string; assignment: AssignmentResponse }
     | { type: "lunch"; entityName: string; lunch: LunchResponse };
+const ASSIGNMENT_DELETE_MODES: DeleteMode[] = ["SIMPLE", "WITH"];
 
 const VISIBLE_DAYS = DAYS_OF_WEEK.filter((day) => day !== "SUNDAY");
 const MIN_GRID_ZOOM = 60;
@@ -346,12 +350,15 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         roomId?: number;
         groupName?: string;
     } | undefined>();
+    const [editingLunch, setEditingLunch] = useState<LunchResponse | null>(null);
+    const [lunchDraft, setLunchDraft] = useState<LunchRequest | null>(null);
 
     const [timeSlotModalOpen, setTimeSlotModalOpen] = useState(false);
     const [editingTimeSlot, setEditingTimeSlot] = useState<TimeSlot | null>(null);
 
     const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
     const [deleteMode, setDeleteMode] = useState<DeleteMode>("SIMPLE");
+    const deleteInProgressRef = useRef(false);
 
     const [selectedDay, setSelectedDay] = useState<DayOfWeek | "ALL">("ALL");
     const [selectedFaculty, setSelectedFaculty] = useState<FilterValue>("ALL");
@@ -361,7 +368,6 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
     const [gridZoom, setGridZoom] = useState(100);
     const [editingGridZoom, setEditingGridZoom] = useState(false);
     const [gridZoomDraft, setGridZoomDraft] = useState("100");
-    const [mainTab, setMainTab] = useState<MainTab>("schedule");
 
     useEffect(() => {
         if (!timetableId || Number.isNaN(timetableId) || timetableId <= 0) {
@@ -611,46 +617,95 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
     };
 
     const requestDelete = (target: DeleteTarget) => {
+        if (deleteInProgressRef.current) return;
+
         setDeleteTarget(target);
         setDeleteMode("SIMPLE");
     };
 
+    const getDeleteDependencyGroups = () => {
+        if (!deleteTarget) return [];
+
+        if (deleteTarget.type === "timetable") {
+            return compactGroups([
+                {
+                    label: "Assignments",
+                    items: uniqueItems(assignments.map(formatAssignment)),
+                },
+                {
+                    label: "Lessons",
+                    items: uniqueItems(lessons.map(formatLesson)),
+                },
+                {
+                    label: "Lunches",
+                    items: lunches.map(formatLunch),
+                },
+            ]);
+        }
+
+        if (deleteTarget.type === "assignment") {
+            return compactGroups([
+                {
+                    label: "Lessons",
+                    items: uniqueItems(
+                        lessons
+                            .filter((lesson) => lesson.assignmentId === deleteTarget.assignment.id)
+                            .map(formatLesson),
+                    ),
+                },
+            ]);
+        }
+
+        return [];
+    };
+
     const handleConfirmDelete = async () => {
         if (!deleteTarget) return;
+        const target = deleteTarget;
+        const mode = deleteMode;
 
         try {
+            deleteInProgressRef.current = true;
             setActionLoading(true);
             setError("");
+            setDeleteTarget(null);
+            setDeleteMode("SIMPLE");
 
-            if (deleteTarget.type === "timetable") {
-                await timetableApi.deleteTimetable(timetableId, deleteMode);
+            if (target.type === "timetable") {
+                await timetableApi.deleteTimetable(timetableId, mode);
                 toast.success("Timetable deleted");
                 window.location.href = "/timetables";
                 return;
             }
 
-            if (deleteTarget.type === "lesson") {
-                await lessonApi.deleteLesson(timetableId, deleteTarget.lesson.id);
+            if (target.type === "lesson") {
+                await lessonApi.deleteLesson(timetableId, target.lesson.id);
                 toast.success("Lesson deleted");
             }
 
-            if (deleteTarget.type === "assignment") {
-                await assignmentApi.deleteAssignment(timetableId, deleteTarget.assignment.id);
+            if (target.type === "assignment") {
+                await assignmentApi.deleteAssignment(timetableId, target.assignment.id, mode);
                 toast.success("Assignment deleted");
             }
 
-            if (deleteTarget.type === "lunch") {
-                await lunchApi.deleteLunch(deleteTarget.lunch.id);
+            if (target.type === "lunch") {
+                await lunchApi.deleteLunch(target.lunch.id, mode);
                 toast.success("Lunch block deleted");
             }
 
-            setDeleteTarget(null);
             await loadData();
-        } catch (err) {
-            const message = getApiErrorMessage(err, "Delete failed");
-            setError(message);
-            showErrorToast(message);
+        } catch {
+            const message =
+                target.type === "timetable"
+                    ? getDeleteRelatedRecordsMessage("timetable", timetableId)
+                    : target.type === "lesson"
+                        ? getDeleteRelatedRecordsMessage("lesson", target.lesson.id)
+                        : target.type === "assignment"
+                            ? getDeleteRelatedRecordsMessage("assignment", target.assignment.id)
+                            : getDeleteRelatedRecordsMessage("lunch", target.lunch.id);
+            toast.error(message);
         } finally {
+            deleteInProgressRef.current = false;
             setActionLoading(false);
         }
     };
@@ -1108,15 +1163,46 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         }
     };
 
-    const handleCellClick = (group: StudyGroupResponse, slot: TimeSlot, day?: DayOfWeek) => {
+    const handleCellClick = async (group: StudyGroupResponse, slot: TimeSlot, day?: DayOfWeek, type: "lesson" | "lunch" = "lesson") => {
+        const targetDay = day ?? (selectedDay === "ALL" ? undefined : selectedDay);
+
+        if (type === "lunch") {
+            if (!targetDay) {
+                showErrorToast("Choose a day before adding lunch from the grid");
+                return;
+            }
+
+            await handleCreateLunch({
+                timetableId,
+                groupId: group.id,
+                dayOfWeek: targetDay,
+                startTime: formatTime(slot.startTime),
+                endTime: formatTime(slot.endTime),
+                manual: true,
+            });
+            return;
+        }
+
         setEditingLesson(null);
         setLessonInitialValues({
             groupName: group.name,
-            dayOfWeek: day ?? (selectedDay === "ALL" ? undefined : selectedDay),
+            dayOfWeek: targetDay,
             startTime: formatTime(slot.startTime),
             durationHours: 1,
         });
         setLessonFormOpen(true);
+    };
+
+    const openLunchEditor = (lunch: LunchResponse) => {
+        setEditingLunch(lunch);
+        setLunchDraft({
+            timetableId: lunch.timetableId,
+            groupId: lunch.groupId,
+            dayOfWeek: lunch.dayOfWeek,
+            startTime: formatTime(lunch.startTime),
+            endTime: formatTime(lunch.endTime),
+            manual: lunch.manual,
+        });
     };
 
     const handleLessonClick = (lesson: LessonResponse) => {
@@ -1181,6 +1267,30 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
             toast.success("Lunch block added");
         } catch (err) {
             const message = getApiErrorMessage(err, "Failed to create lunch block");
+            setError(message);
+            showErrorToast(message);
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleUpdateLunch = async () => {
+        if (!editingLunch || !lunchDraft) return;
+
+        if (lunchDraft.startTime >= lunchDraft.endTime) {
+            showErrorToast("End time must be after start time");
+            return;
+        }
+
+        try {
+            setActionLoading(true);
+            await lunchApi.updateLunch(editingLunch.id, lunchDraft);
+            setEditingLunch(null);
+            setLunchDraft(null);
+            await loadData();
+            toast.success("Lunch block updated");
+        } catch (err) {
+            const message = getApiErrorMessage(err, "Failed to update lunch block");
             setError(message);
             showErrorToast(message);
         } finally {
@@ -1263,14 +1373,6 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
             <Card className="glass-card mt-6">
                 <CardHeader>
                     <div className="space-y-4">
-                        <div className="flex flex-wrap gap-2">
-                            {(["schedule", "diagnostics", "settings"] as MainTab[]).map((tab) => (
-                                <Button key={tab} variant={mainTab === tab ? "default" : "outline"} onClick={() => setMainTab(tab)}>
-                                    {tab === "schedule" ? "Schedule" : tab === "diagnostics" ? "Diagnostics" : "Settings"}
-                                </Button>
-                            ))}
-                        </div>
-
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                             <select value={selectedDay} onChange={(event) => setSelectedDay(event.target.value as DayOfWeek | "ALL")} className="h-11 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-sm"><option value="ALL">All days</option>{VISIBLE_DAYS.map((day) => <option key={day} value={day}>{day.charAt(0) + day.slice(1).toLowerCase()}</option>)}</select>
                             <select value={selectedFaculty} onChange={(event) => setSelectedFaculty(event.target.value === "ALL" ? "ALL" : Number(event.target.value))} className="h-11 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-sm"><option value="ALL">All faculties</option>{faculties.map((faculty) => <option key={faculty.id} value={faculty.id}>{faculty.name}</option>)}</select>
@@ -1353,53 +1455,32 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                     </div>
                 </CardHeader>
 
-                {mainTab === "schedule" && (
-                    <CardContent>
-                        <div className="h-[680px] min-h-0">
-                            <TimetableGrid
-                                lessons={filteredLessons}
-                                groups={filteredGroups}
-                                selectedDay={selectedDay}
-                                timeSlots={timeSlots}
-                                lunchBlocks={filteredLunches}
-                                density={density}
-                                zoom={gridZoom / 100}
-                                onZoomChange={handleGridZoomChange}
-                                onCellClick={handleCellClick}
-                                onLessonClick={handleLessonClick}
-                                onLessonEdit={(lesson) => {
-                                    setEditingLesson(lesson);
-                                    setLessonInitialValues({ roomId: findLessonRoomId(lesson, rooms) });
-                                    setLessonFormOpen(true);
-                                }}
-                                onLessonDelete={(lesson) => requestDelete({ type: "lesson", entityName: lesson.subjectName, lesson })}
-                                onTimeSlotDoubleClick={(slot) => { setEditingTimeSlot(slot); setTimeSlotModalOpen(true); }}
-                            />
-                        </div>
-                    </CardContent>
-                )}
+                <CardContent>
+                    <div className="h-[680px] min-h-0">
+                        <TimetableGrid
+                            lessons={filteredLessons}
+                            groups={filteredGroups}
+                            selectedDay={selectedDay}
+                            timeSlots={timeSlots}
+                            lunchBlocks={filteredLunches}
+                            density={density}
+                            zoom={gridZoom / 100}
+                            onZoomChange={handleGridZoomChange}
+                            onCellClick={handleCellClick}
+                            onLessonClick={handleLessonClick}
+                            onLessonEdit={(lesson) => {
+                                setEditingLesson(lesson);
+                                setLessonInitialValues({ roomId: findLessonRoomId(lesson, rooms) });
+                                setLessonFormOpen(true);
+                            }}
+                            onLessonDelete={(lesson) => requestDelete({ type: "lesson", entityName: lesson.subjectName, lesson })}
+                            onLunchEdit={openLunchEditor}
+                            onLunchDelete={(lunch) => requestDelete({ type: "lunch", entityName: `Lunch ${formatTime(lunch.startTime)}-${formatTime(lunch.endTime)}`, lunch })}
+                            onTimeSlotDoubleClick={(slot) => { setEditingTimeSlot(slot); setTimeSlotModalOpen(true); }}
+                        />
+                    </div>
+                </CardContent>
             </Card>
-
-            {mainTab === "diagnostics" && (
-                <DiagnosticsPanel
-                    assignments={assignments}
-                    generationResult={generationResult}
-                    onManualPlace={openManualModal}
-                    onEditAssignment={(assignment) => { setEditingAssignment(assignment); setShowAssignmentForm(true); }}
-                    onReviewAssignments={openAssignmentsWithFilter}
-                />
-            )}
-
-            {mainTab === "settings" && (
-                <LunchSettingsPanel
-                    timetableId={timetableId}
-                    lunches={lunches}
-                    groups={filteredGroups.length > 0 ? filteredGroups : groups}
-                    saving={actionLoading}
-                    onCreate={handleCreateLunch}
-                    onDelete={(lunch) => requestDelete({ type: "lunch", entityName: `Lunch ${formatTime(lunch.startTime)}-${formatTime(lunch.endTime)}`, lunch })}
-                />
-            )}
 
             <AssignmentsDrawer
                 open={assignmentsDrawerOpen}
@@ -1494,14 +1575,88 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                 onSave={handleSaveTimeSlot}
             />
 
+            <Dialog open={Boolean(editingLunch)} onOpenChange={(open) => { if (!open) { setEditingLunch(null); setLunchDraft(null); } }}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Edit Lunch</DialogTitle>
+                    </DialogHeader>
+
+                    {lunchDraft && (
+                        <div className="space-y-4">
+                            <div>
+                                <label className="mb-2 block text-sm font-medium">Group</label>
+                                <select
+                                    value={lunchDraft.groupId}
+                                    onChange={(event) => setLunchDraft({ ...lunchDraft, groupId: Number(event.target.value) })}
+                                    className="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm"
+                                    disabled={actionLoading}
+                                >
+                                    {groups.map((group) => (
+                                        <option key={group.id} value={group.id}>{group.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="mb-2 block text-sm font-medium">Day</label>
+                                <select
+                                    value={lunchDraft.dayOfWeek}
+                                    onChange={(event) => setLunchDraft({ ...lunchDraft, dayOfWeek: event.target.value as DayOfWeek })}
+                                    className="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm"
+                                    disabled={actionLoading}
+                                >
+                                    {VISIBLE_DAYS.map((day) => (
+                                        <option key={day} value={day}>{day.charAt(0) + day.slice(1).toLowerCase()}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium">Start</label>
+                                    <input
+                                        type="time"
+                                        value={lunchDraft.startTime}
+                                        onChange={(event) => setLunchDraft({ ...lunchDraft, startTime: event.target.value })}
+                                        className="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm"
+                                        disabled={actionLoading}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="mb-2 block text-sm font-medium">End</label>
+                                    <input
+                                        type="time"
+                                        value={lunchDraft.endTime}
+                                        onChange={(event) => setLunchDraft({ ...lunchDraft, endTime: event.target.value })}
+                                        className="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm"
+                                        disabled={actionLoading}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-2">
+                                <Button type="button" variant="outline" onClick={() => { setEditingLunch(null); setLunchDraft(null); }} disabled={actionLoading}>
+                                    Cancel
+                                </Button>
+                                <Button type="button" onClick={handleUpdateLunch} disabled={actionLoading}>
+                                    Save
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+
             <DeleteModeDialog
                 open={Boolean(deleteTarget)}
                 title={deleteTarget?.type === "timetable" ? "Delete timetable?" : deleteTarget?.type === "assignment" ? "Delete assignment?" : deleteTarget?.type === "lunch" ? "Delete lunch block?" : "Delete lesson?"}
                 description={deleteTarget?.type === "timetable" ? "This will delete the timetable and related schedule data." : "This action removes the selected item."}
                 entityName={deleteTarget?.entityName}
+                dependencyGroups={getDeleteDependencyGroups()}
                 selectedMode={deleteMode}
+                availableModes={deleteTarget?.type === "assignment" ? ASSIGNMENT_DELETE_MODES : undefined}
                 loading={actionLoading}
-                showModeSelector={deleteTarget?.type === "timetable"}
+                showModeSelector={deleteTarget?.type === "timetable" || deleteTarget?.type === "assignment"}
                 onModeChange={setDeleteMode}
                 onCancel={() => setDeleteTarget(null)}
                 onConfirm={handleConfirmDelete}

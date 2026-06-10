@@ -1,9 +1,9 @@
 import apiClient from "./api";
-import { LunchRequest, LunchResponse } from "./types";
+import type { DeleteMode, LunchRequest, LunchResponse } from "./types";
 
 export const lunchApi = {
     getLunchById: async (id: number): Promise<LunchResponse> => {
-        const response = await apiClient.get<LunchResponse>(`/api/lunches/${id}`);
+        const response = await apiClient.get<LunchResponse>(`/api/lunch/${id}`);
         return response.data;
     },
 
@@ -16,18 +16,30 @@ export const lunchApi = {
         return response.data;
     },
 
+    getLunchesForTimetables: async (
+        timetableIds: number[],
+    ): Promise<LunchResponse[]> => {
+        const results = await Promise.all(
+            timetableIds.map((timetableId) =>
+                lunchApi.getLunchesByTimetable(timetableId),
+            ),
+        );
+
+        return results.flat();
+    },
+
     getLunchesByTimetableAndGroup: async (
         timetableId: number,
         groupId: number,
     ): Promise<LunchResponse[]> => {
         const response = await apiClient.get<LunchResponse[]>(
-            `/api/lunches/timetable/${timetableId}/group/${groupId}`,
+            `/api/lunch/timetable/${timetableId}/group/${groupId}`,
         );
         return response.data;
     },
 
     createLunch: async (data: LunchRequest): Promise<LunchResponse> => {
-        const response = await apiClient.post<LunchResponse>("/api/lunches", data);
+        const response = await apiClient.post<LunchResponse>("/api/lunch", data);
         return response.data;
     },
 
@@ -36,13 +48,13 @@ export const lunchApi = {
         data: LunchRequest,
     ): Promise<LunchResponse> => {
         const response = await apiClient.put<LunchResponse>(
-            `/api/lunches/${id}`,
+            `/api/lunch/${id}`,
             data,
         );
         return response.data;
     },
 
-    deleteLunch: async (id: number): Promise<void> => {
-        await apiClient.delete(`/api/lunches/${id}`);
+    deleteLunch: async (id: number, mode: DeleteMode = "SIMPLE"): Promise<void> => {
+        await apiClient.delete(`/api/lunch/${id}?mode=${mode}`);
     },
 };
