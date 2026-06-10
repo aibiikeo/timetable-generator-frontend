@@ -17,6 +17,7 @@ interface ExceptionsPickerProps {
     value: TimeException[];
     timeSlots: TimeSlot[];
     onChange: (value: TimeException[]) => void;
+    compact?: boolean;
 }
 
 const DAYS: DayOfWeek[] = [
@@ -36,6 +37,7 @@ export default function ExceptionsPicker({
                                              value,
                                              timeSlots,
                                              onChange,
+                                             compact = false,
                                          }: ExceptionsPickerProps) {
     const sortedSlots = [...timeSlots].sort((a, b) => {
         const orderA = (a as unknown as { order?: number }).order ?? 0;
@@ -83,15 +85,17 @@ export default function ExceptionsPicker({
     };
 
     return (
-        <div className="rounded-2xl border border-border p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
+        <div className={compact ? "rounded-lg border border-border p-2" : "rounded-2xl border border-border p-4"}>
+            <div className={compact && value.length === 0 ? "flex items-center justify-between gap-3" : "mb-3 flex items-center justify-between gap-3"}>
                 <div>
-                    <h4 className="text-sm font-semibold">
+                    <h4 className={compact ? "text-xs font-medium text-muted-foreground" : "text-sm font-semibold"}>
                         Time exceptions
                     </h4>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                        Mark time slots where this assignment should not be placed.
-                    </p>
+                    {!compact && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            Mark time slots where this assignment should not be placed.
+                        </p>
+                    )}
                 </div>
 
                 <Button
@@ -107,9 +111,11 @@ export default function ExceptionsPicker({
             </div>
 
             {value.length === 0 ? (
+                compact ? null : (
                 <div className="rounded-xl border border-dashed border-border bg-card/70 p-4 text-sm text-muted-foreground">
                     No exceptions selected.
                 </div>
+                )
             ) : (
                 <div className="space-y-2">
                     {value.map((item, index) => (

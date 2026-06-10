@@ -38,9 +38,6 @@ export default function DiagnosticsPanel({
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div>
                         <CardTitle>Diagnostics</CardTitle>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Review assignments that were not fully scheduled and repair them manually.
-                        </p>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">

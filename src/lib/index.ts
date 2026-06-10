@@ -17,5 +17,11 @@ export { timetableApi } from "./timetableApi";
 export { userApi } from "./userApi";
 
 export { getApiErrorMessage } from "./apiError";
+export {
+    getAssignmentLessonStats,
+    getAssignmentUnplacedLessons,
+    normalizePlacementStatus,
+} from "./assignmentStats";
+export type { NormalizedPlacementStatus } from "./assignmentStats";
 
 export type * from "./types";

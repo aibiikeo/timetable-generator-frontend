@@ -100,7 +100,7 @@ function roomMatchesType(room: RoomResponse, roomType: RoomType) {
 }
 
 function uniqueById<T extends { id: number }>(items: T[]) {
-    return Array.from(new Map(items.map((item) => [item.id, item])).values());
+    return [...new Map(items.map((item) => [item.id, item])).values()];
 }
 
 function parseSelectNumber(value: string) {

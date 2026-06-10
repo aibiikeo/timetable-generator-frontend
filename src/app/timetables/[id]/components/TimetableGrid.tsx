@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode, type WheelEvent } from "react";
 import { CalendarDays, DoorOpen, Pencil, Plus, Trash2, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ interface TimetableGridProps {
     lunchBlocks?: LunchResponse[];
     density?: GridDensity | "comfortable";
     zoom?: number;
+    onZoomChange?: (zoom: number) => void;
     onCellClick?: (group: StudyGroupResponse, slot: TimeSlot, day?: DayOfWeek) => void;
     onLessonClick?: (lesson: LessonResponse) => void;
     onLessonEdit?: (lesson: LessonResponse) => void;
@@ -33,6 +34,8 @@ interface TimetableGridProps {
 const VISIBLE_DAYS = DAYS_OF_WEEK.filter((day) => day !== "SUNDAY");
 const DAY_COLUMN_WIDTH = 132;
 const GROUP_COLUMN_WIDTH = 188;
+const MIN_ZOOM = 0.6;
+const MAX_ZOOM = 1.5;
 
 const DAY_LABELS: Record<DayOfWeek, string> = {
     MONDAY: "Monday",
@@ -71,7 +74,7 @@ function normalizeDensity(density?: GridDensity | "comfortable"): GridDensity {
 
 function normalizeZoom(zoom?: number) {
     if (!Number.isFinite(zoom)) return 1;
-    return Math.min(Math.max(Number(zoom), 0.6), 1.5);
+    return Math.min(Math.max(Number(zoom), MIN_ZOOM), MAX_ZOOM);
 }
 
 function getScaledConfig(density: GridDensity, zoom?: number) {
@@ -80,8 +83,17 @@ function getScaledConfig(density: GridDensity, zoom?: number) {
 
     return {
         ...base,
+        scale,
         slotWidth: Math.round(base.slotWidth * scale),
         cellHeight: Math.round(base.cellHeight * scale),
+        dayColumnWidth: Math.round(DAY_COLUMN_WIDTH * scale),
+        groupColumnWidth: Math.round(GROUP_COLUMN_WIDTH * scale),
+        headerPaddingX: Math.max(8, Math.round(16 * scale)),
+        headerPaddingY: Math.max(8, Math.round(12 * scale)),
+        cellPadding: Math.max(4, Math.round(8 * scale)),
+        headerFontSize: Math.max(12, Math.round(14 * scale)),
+        groupBadgeFontSize: Math.max(10, Math.round(12 * scale)),
+        dayFontSize: Math.max(12, Math.round(16 * scale)),
     };
 }
 
@@ -143,39 +155,21 @@ function EmptyGridState({ title, description }: { title: string; description: st
     );
 }
 
-function getSlotDescription(slot: TimeSlot) {
-    const description = String(slot.description || "").trim();
-    if (description && !/^\d+$/.test(description)) return description;
-
-    const order = slot.order ?? Number(description);
-    if (!order) return description;
-
-    const suffix = order % 100 >= 11 && order % 100 <= 13
-        ? "th"
-        : order % 10 === 1
-            ? "st"
-            : order % 10 === 2
-                ? "nd"
-                : order % 10 === 3
-                    ? "rd"
-                    : "th";
-
-    return `${order}${suffix} lesson`;
-}
-
 function TimeSlotHeader({ slot, config, onDoubleClick }: { slot: TimeSlot; config: ReturnType<typeof getScaledConfig>; onDoubleClick?: () => void }) {
-    const description = getSlotDescription(slot);
-
     return (
         <th
-            style={{ minWidth: config.slotWidth, width: config.slotWidth }}
+            style={{
+                minWidth: config.slotWidth,
+                width: config.slotWidth,
+                padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`,
+                fontSize: config.headerFontSize,
+            }}
             onDoubleClick={onDoubleClick}
             title="Double click to edit time slot"
-            className="sticky top-0 z-30 border-b border-r border-border bg-slate-950 px-3 py-3 text-left font-semibold text-white last:border-r-0"
+            className="sticky top-0 z-30 border-b border-r border-border bg-slate-950 text-left font-semibold text-white last:border-r-0"
         >
             <button type="button" className="w-full rounded-lg text-left outline-none hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/40">
                 <div>{formatTime(slot.startTime)}-{formatTime(slot.endTime)}</div>
-                {description && <div className="mt-1 line-clamp-1 text-xs font-normal text-slate-300">{description}</div>}
             </button>
         </th>
     );
@@ -282,22 +276,91 @@ function EmptyCell({ config, onClick }: { config: ReturnType<typeof getScaledCon
     );
 }
 
-function GroupHeaderCell({ group, left, zIndex }: { group: StudyGroupResponse; left: number; zIndex: number }) {
+function GroupHeaderCell({ group, left, zIndex, config }: { group: StudyGroupResponse; left: number; zIndex: number; config: ReturnType<typeof getScaledConfig> }) {
     return (
         <th
-            style={{ left, zIndex, width: GROUP_COLUMN_WIDTH, minWidth: GROUP_COLUMN_WIDTH }}
-            className="sticky border-b border-r border-border bg-card px-4 py-3 text-left align-top shadow-[1px_0_0_var(--border)]"
+            style={{
+                left,
+                zIndex,
+                width: config.groupColumnWidth,
+                minWidth: config.groupColumnWidth,
+                padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`,
+                fontSize: config.headerFontSize,
+            }}
+            className="sticky border-b border-r border-border bg-card text-left align-top shadow-[1px_0_0_var(--border)]"
         >
             <div className="line-clamp-2 font-semibold">{group.name}</div>
-            <div className="mt-2 inline-flex rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">Course {group.course}</div>
+            <div
+                style={{
+                    fontSize: config.groupBadgeFontSize,
+                    padding: `${Math.max(3, Math.round(4 * config.scale))}px ${Math.max(8, Math.round(12 * config.scale))}px`,
+                }}
+                className="mt-2 inline-flex rounded-full border border-border text-muted-foreground"
+            >
+                Course {group.course}
+            </div>
         </th>
     );
 }
 
-function GridShell({ minWidth, children }: { minWidth: number; children: ReactNode }) {
+function GridShell({
+    minWidth,
+    zoom,
+    onZoomChange,
+    children,
+}: {
+    minWidth: number;
+    zoom: number;
+    onZoomChange?: (zoom: number) => void;
+    children: ReactNode;
+}) {
+    const scrollRef = useRef<HTMLDivElement | null>(null);
+    const zoomAnchorRef = useRef<{
+        zoom: number;
+        x: number;
+        y: number;
+        scrollLeft: number;
+        scrollTop: number;
+    } | null>(null);
+
+    useLayoutEffect(() => {
+        const anchor = zoomAnchorRef.current;
+        const scroller = scrollRef.current;
+
+        if (!anchor || !scroller || anchor.zoom === zoom) return;
+
+        const ratio = zoom / anchor.zoom;
+        scroller.scrollLeft = (anchor.scrollLeft + anchor.x) * ratio - anchor.x;
+        scroller.scrollTop = (anchor.scrollTop + anchor.y) * ratio - anchor.y;
+        zoomAnchorRef.current = null;
+    }, [zoom]);
+
+    const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+        if (!onZoomChange || (!event.ctrlKey && !event.metaKey)) return;
+
+        event.preventDefault();
+
+        const scroller = scrollRef.current;
+        if (!scroller) return;
+
+        const rect = scroller.getBoundingClientRect();
+        const nextZoom = normalizeZoom(zoom * Math.exp(-event.deltaY * 0.0015));
+
+        if (nextZoom === zoom) return;
+
+        zoomAnchorRef.current = {
+            zoom,
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+            scrollLeft: scroller.scrollLeft,
+            scrollTop: scroller.scrollTop,
+        };
+        onZoomChange(nextZoom);
+    };
+
     return (
         <div className="h-full overflow-hidden rounded-2xl border border-border bg-card">
-            <div className="custom-scrollbar h-full overflow-auto">
+            <div ref={scrollRef} onWheel={handleWheel} className="custom-scrollbar h-full overflow-auto">
                 <table style={{ minWidth }} className="w-full border-separate border-spacing-0 text-sm">
                     {children}
                 </table>
@@ -314,6 +377,7 @@ export default function TimetableGrid({
     lunchBlocks = [],
     density = "medium",
     zoom = 1,
+    onZoomChange,
     onCellClick,
     onLessonClick,
     onLessonEdit,
@@ -323,6 +387,7 @@ export default function TimetableGrid({
     const normalizedDensity = normalizeDensity(density);
     const sortedSlots = sortTimeSlots(timeSlots);
     const config = getScaledConfig(normalizedDensity, zoom);
+    const normalizedZoom = normalizeZoom(zoom);
 
     if (groups.length === 0) {
         return <EmptyGridState title="No groups selected" description="Change filters to show timetable grid." />;
@@ -344,7 +409,7 @@ export default function TimetableGrid({
             if (lesson) {
                 const span = getLessonSpan(lesson, sortedSlots.length - slotIndex);
                 cells.push(
-                    <td key={`${day || "single"}-${group.id}-${slot.id}`} colSpan={span} style={{ minWidth: config.slotWidth * span, height: config.cellHeight }} className="border-b border-r border-border bg-background/40 p-2 align-top last:border-r-0">
+                    <td key={`${day || "single"}-${group.id}-${slot.id}`} colSpan={span} style={{ minWidth: config.slotWidth * span, height: config.cellHeight, padding: config.cellPadding }} className="border-b border-r border-border bg-background/40 align-top last:border-r-0">
                         <LessonCard
                             lesson={lesson}
                             config={config}
@@ -359,7 +424,7 @@ export default function TimetableGrid({
             }
 
             cells.push(
-                <td key={`${day || "single"}-${group.id}-${slot.id}`} style={{ minWidth: config.slotWidth, height: config.cellHeight }} className="border-b border-r border-border bg-background/40 p-2 align-top last:border-r-0">
+                <td key={`${day || "single"}-${group.id}-${slot.id}`} style={{ minWidth: config.slotWidth, height: config.cellHeight, padding: config.cellPadding }} className="border-b border-r border-border bg-background/40 align-top last:border-r-0">
                     {lunch ? <LunchCell /> : <EmptyCell config={config} onClick={() => onCellClick?.(group, slot, day)} />}
                 </td>,
             );
@@ -370,14 +435,14 @@ export default function TimetableGrid({
     };
 
     if (selectedDay === "ALL") {
-        const minWidth = DAY_COLUMN_WIDTH + GROUP_COLUMN_WIDTH + sortedSlots.length * config.slotWidth;
+        const minWidth = config.dayColumnWidth + config.groupColumnWidth + sortedSlots.length * config.slotWidth;
 
         return (
-            <GridShell minWidth={minWidth}>
+            <GridShell minWidth={minWidth} zoom={normalizedZoom} onZoomChange={onZoomChange}>
                 <thead>
                 <tr>
-                    <th style={{ left: 0, width: DAY_COLUMN_WIDTH, minWidth: DAY_COLUMN_WIDTH }} className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 px-4 py-3 text-left font-semibold text-white">Day</th>
-                    <th style={{ left: DAY_COLUMN_WIDTH, width: GROUP_COLUMN_WIDTH, minWidth: GROUP_COLUMN_WIDTH }} className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 px-4 py-3 text-left font-semibold text-white">Group</th>
+                    <th style={{ left: 0, width: config.dayColumnWidth, minWidth: config.dayColumnWidth, padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`, fontSize: config.headerFontSize }} className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 text-left font-semibold text-white">Day</th>
+                    <th style={{ left: config.dayColumnWidth, width: config.groupColumnWidth, minWidth: config.groupColumnWidth, padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`, fontSize: config.headerFontSize }} className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 text-left font-semibold text-white">Group</th>
                     {sortedSlots.map((slot) => <TimeSlotHeader key={slot.id} slot={slot} config={config} onDoubleClick={() => onTimeSlotDoubleClick?.(slot)} />)}
                 </tr>
                 </thead>
@@ -385,11 +450,11 @@ export default function TimetableGrid({
                 {VISIBLE_DAYS.map((day) => groups.map((group, groupIndex) => (
                     <tr key={`${day}-${group.id}`}>
                         {groupIndex === 0 && (
-                            <th rowSpan={groups.length} style={{ left: 0, zIndex: 40, width: DAY_COLUMN_WIDTH, minWidth: DAY_COLUMN_WIDTH }} className="sticky border-b border-r border-border bg-blue-100 px-4 py-4 text-left align-top font-semibold text-blue-950 shadow-[1px_0_0_var(--border)]">
-                                <div className="sticky top-16 whitespace-normal break-words text-base leading-5">{DAY_LABELS[day]}</div>
+                            <th rowSpan={groups.length} style={{ left: 0, zIndex: 40, width: config.dayColumnWidth, minWidth: config.dayColumnWidth, padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`, fontSize: config.dayFontSize }} className="sticky border-b border-r border-border bg-blue-100 text-left align-top font-semibold text-blue-950 shadow-[1px_0_0_var(--border)]">
+                                <div className="sticky top-16 whitespace-normal break-words leading-5">{DAY_LABELS[day]}</div>
                             </th>
                         )}
-                        <GroupHeaderCell group={group} left={DAY_COLUMN_WIDTH} zIndex={30} />
+                        <GroupHeaderCell group={group} left={config.dayColumnWidth} zIndex={30} config={config} />
                         {renderCells(group, day)}
                     </tr>
                 )))}
@@ -398,20 +463,20 @@ export default function TimetableGrid({
         );
     }
 
-    const minWidth = GROUP_COLUMN_WIDTH + sortedSlots.length * config.slotWidth;
+    const minWidth = config.groupColumnWidth + sortedSlots.length * config.slotWidth;
 
     return (
-        <GridShell minWidth={minWidth}>
+        <GridShell minWidth={minWidth} zoom={normalizedZoom} onZoomChange={onZoomChange}>
             <thead>
             <tr>
-                <th style={{ left: 0, width: GROUP_COLUMN_WIDTH, minWidth: GROUP_COLUMN_WIDTH }} className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 px-4 py-3 text-left font-semibold text-white">Group</th>
+                <th style={{ left: 0, width: config.groupColumnWidth, minWidth: config.groupColumnWidth, padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`, fontSize: config.headerFontSize }} className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 text-left font-semibold text-white">Group</th>
                 {sortedSlots.map((slot) => <TimeSlotHeader key={slot.id} slot={slot} config={config} onDoubleClick={() => onTimeSlotDoubleClick?.(slot)} />)}
             </tr>
             </thead>
             <tbody>
             {groups.map((group) => (
                 <tr key={group.id}>
-                    <GroupHeaderCell group={group} left={0} zIndex={30} />
+                    <GroupHeaderCell group={group} left={0} zIndex={30} config={config} />
                     {renderCells(group, selectedDay)}
                 </tr>
             ))}

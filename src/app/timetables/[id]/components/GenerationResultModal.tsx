@@ -18,10 +18,12 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import type { GenerationResponse } from "@/lib/types";
+import { getAssignmentLessonStats } from "@/lib";
+import type { AssignmentResponse, GenerationResponse } from "@/lib/types";
 
 interface GenerationResultModalProps {
     result: GenerationResponse;
+    assignments?: AssignmentResponse[];
     retrying?: boolean;
     onClose: () => void;
     onManualPlace: (assignmentId: number) => void;
@@ -29,7 +31,7 @@ interface GenerationResultModalProps {
     onStopRetry?: () => void;
 }
 
-type FailedItem = {
+interface FailedItem {
     assignmentId?: number;
     id?: number;
     subjectName?: string;
@@ -37,7 +39,7 @@ type FailedItem = {
     groupNames?: string[];
     reason?: string;
     message?: string;
-};
+}
 
 function getFailedItems(result: GenerationResponse): FailedItem[] {
     const raw = result as unknown as {
@@ -58,6 +60,7 @@ function getFailedItems(result: GenerationResponse): FailedItem[] {
 
 export default function GenerationResultModal({
                                                   result,
+                                                  assignments = [],
                                                   retrying = false,
                                                   onClose,
                                                   onManualPlace,
@@ -69,13 +72,23 @@ export default function GenerationResultModal({
     const placedLessonsCount =
         (result as unknown as { placedLessonsCount?: number }).placedLessonsCount ?? 0;
 
-    const failedVerticesCount =
+    const fallbackUnscheduledLessons =
         (result as unknown as { failedVerticesCount?: number }).failedVerticesCount ?? 0;
 
-    const totalProcessed = placedLessonsCount + failedVerticesCount;
-    const successRate =
-        totalProcessed > 0
-            ? Math.round((placedLessonsCount / totalProcessed) * 100)
+    const assignmentSummary = getAssignmentLessonStats(assignments);
+    const scheduledLessons =
+        assignmentSummary.requiredLessons > 0
+            ? assignmentSummary.placedLessons
+            : placedLessonsCount;
+    const unscheduledLessons =
+        assignmentSummary.requiredLessons > 0
+            ? assignmentSummary.unplacedLessons
+            : fallbackUnscheduledLessons;
+    const totalLessons =
+        assignmentSummary.requiredLessons || scheduledLessons + unscheduledLessons;
+    const completionRate =
+        totalLessons > 0
+            ? Math.round((scheduledLessons / totalLessons) * 100)
             : 0;
 
     return (
@@ -84,11 +97,8 @@ export default function GenerationResultModal({
                 <DialogHeader>
                     <div>
                         <DialogTitle>
-                            Generation Result
+                            Timetable generation summary
                         </DialogTitle>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Review generated lessons and assignments that need manual placement.
-                        </p>
                     </div>
                 </DialogHeader>
 
@@ -96,59 +106,50 @@ export default function GenerationResultModal({
                     <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
                         <div className="flex items-center justify-between gap-3">
                             <div className="text-sm font-medium text-emerald-800">
-                                Placed
+                                Scheduled lessons
                             </div>
                             <CheckCircle2 className="h-5 w-5 text-emerald-700" />
                         </div>
 
                         <div className="mt-3 text-3xl font-bold text-emerald-900">
-                            {placedLessonsCount}
+                            {scheduledLessons}
                         </div>
 
-                        <p className="mt-1 text-xs text-emerald-700">
-                            Lessons successfully scheduled
-                        </p>
                     </div>
 
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
                         <div className="flex items-center justify-between gap-3">
                             <div className="text-sm font-medium text-amber-800">
-                                Failed
+                                Unscheduled lessons
                             </div>
                             <AlertTriangle className="h-5 w-5 text-amber-700" />
                         </div>
 
                         <div className="mt-3 text-3xl font-bold text-amber-900">
-                            {failedVerticesCount}
+                            {unscheduledLessons}
                         </div>
 
-                        <p className="mt-1 text-xs text-amber-700">
-                            Need manual review
-                        </p>
                     </div>
 
                     <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
                         <div className="flex items-center justify-between gap-3">
                             <div className="text-sm font-medium text-blue-800">
-                                Success rate
+                                Timetable ready
                             </div>
                             <ClipboardList className="h-5 w-5 text-blue-700" />
                         </div>
 
                         <div className="mt-3 text-3xl font-bold text-blue-900">
-                            {successRate}%
+                            {completionRate}%
                         </div>
 
-                        <p className="mt-1 text-xs text-blue-700">
-                            Based on processed items
-                        </p>
                     </div>
                 </section>
 
                 <section className="mt-6">
                     <div className="mb-3 flex items-center justify-between gap-3">
                         <h4 className="text-sm font-semibold">
-                            Manual placement queue
+                            Needs manual placement
                         </h4>
 
                         <Badge
@@ -158,13 +159,13 @@ export default function GenerationResultModal({
                                     : "success"
                             }
                         >
-                            {failedItems.length} item(s)
+                            {failedItems.length} assignment(s)
                         </Badge>
                     </div>
 
                     {failedItems.length === 0 ? (
                         <div className="rounded-2xl border border-border bg-card p-5 text-sm text-muted-foreground">
-                            No failed assignments. The generation result looks clean.
+                            No assignments need manual placement right now.
                         </div>
                     ) : (
                         <div className="custom-scrollbar max-h-80 overflow-y-auto rounded-2xl border border-border">

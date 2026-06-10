@@ -16,7 +16,6 @@ import {
     Play,
     Plus,
     Send,
-    Settings2,
     Square,
     Trash2,
 } from "lucide-react";
@@ -108,6 +107,7 @@ const VISIBLE_DAYS = DAYS_OF_WEEK.filter((day) => day !== "SUNDAY");
 const MIN_GRID_ZOOM = 60;
 const MAX_GRID_ZOOM = 150;
 const GRID_ZOOM_STEP = 10;
+const LAST_WORKED_TIMETABLE_STORAGE_KEY = "last-worked-timetable-id";
 
 function formatTime(time: string) {
     return time.substring(0, 5);
@@ -125,6 +125,7 @@ const EXPORT_COLORS = [
     { fill: "FCE7F3", text: "9D174D" },
     { fill: "E0E7FF", text: "3730A3" },
 ];
+const LUNCH_EXPORT_STYLE = { fill: "FEF3C7", text: "92400E" };
 
 function hexToRgb(hex: string): [number, number, number] {
     const clean = hex.replace("#", "");
@@ -169,6 +170,18 @@ function getLessonDurationSpan(lesson: LessonResponse, slotIndex: number, totalS
     return Math.min(Math.max(1, Math.round(duration)), totalSlots - slotIndex);
 }
 
+function getLunchDurationSpan(lunch: LunchResponse, slotIndex: number, slots: TimeSlot[]) {
+    const lunchEnd = formatTime(lunch.endTime);
+    let span = 1;
+
+    for (let index = slotIndex + 1; index < slots.length; index += 1) {
+        if (formatTime(slots[index - 1].endTime) >= lunchEnd) break;
+        span += 1;
+    }
+
+    return span;
+}
+
 function getDisplayTimetableName(name: string) {
     return name.replace(/\s+v\d+$/i, "").trim();
 }
@@ -191,7 +204,7 @@ function showErrorToast(message: string) {
 
 function isProblemAssignment(assignment: AssignmentResponse) {
     const status = String(assignment.placementStatus || "").toUpperCase();
-    return assignment.requiresManualInput || ["FAILED", "PARTIAL", "UNPLACED", "MANUAL_REQUIRED", "PENDING"].includes(status);
+    return assignment.requiresManualInput || ["FAILED", "MANUAL_REQUIRED", "PARTIAL", "PENDING", "UNPLACED"].includes(status);
 }
 
 function getRetrySplitting(assignment: AssignmentResponse) {
@@ -203,7 +216,16 @@ function makeLessonExportText(lesson: LessonResponse) {
 }
 
 function sanitizeExcelSheetName(name: string) {
-    const cleaned = name.replace(/[\[\]:*?/\\]/g, " ").replace(/\s+/g, " ").trim();
+    const cleaned = name
+        .replaceAll("[", " ")
+        .replaceAll("]", " ")
+        .replaceAll(":", " ")
+        .replaceAll("*", " ")
+        .replaceAll("?", " ")
+        .replaceAll("/", " ")
+        .replaceAll("\\", " ")
+        .replaceAll(/\s+/g, " ")
+        .trim();
     return (cleaned || "Sheet").slice(0, 31);
 }
 
@@ -223,7 +245,7 @@ function makeUniqueSheetName(name: string, usedNames: Set<string>) {
 }
 
 function getExcelExportSheets(groups: StudyGroupResponse[]) {
-    const sheets: Array<{ name: string; groups: StudyGroupResponse[] }> = [];
+    const sheets: { name: string; groups: StudyGroupResponse[] }[] = [];
     const bachelorByDepartment = new Map<number | string, { name: string; groups: StudyGroupResponse[] }>();
 
     groups.forEach((group) => {
@@ -268,6 +290,14 @@ function getLessonForExportCell(lessons: LessonResponse[], groupName: string, sl
         lesson.groupNames.includes(groupName) &&
         formatTime(lesson.startTime) === formatTime(slot.startTime) &&
         lesson.dayOfWeek === day,
+    );
+}
+
+function getLunchForExportCell(lunches: LunchResponse[], groupId: number, slot: TimeSlot, day: DayOfWeek) {
+    return lunches.find((lunch) =>
+        lunch.groupId === groupId &&
+        formatTime(lunch.startTime) === formatTime(slot.startTime) &&
+        lunch.dayOfWeek === day,
     );
 }
 
@@ -340,6 +370,10 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
             return;
         }
 
+        window.localStorage.setItem(
+            LAST_WORKED_TIMETABLE_STORAGE_KEY,
+            String(timetableId),
+        );
         void loadData(true);
     }, [timetableId]);
 
@@ -394,10 +428,15 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
             setTimeSlots(timeSlotsData);
             setDepartments(departmentsData as DepartmentOption[]);
             setLunches(lunchesData);
+
+            return {
+                assignments: assignmentsData,
+            };
         } catch (err) {
             const message = getApiErrorMessage(err, "Failed to load timetable data");
             setError(message);
             showErrorToast(message);
+            return null;
         } finally {
             if (initial) setLoading(false);
         }
@@ -447,7 +486,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
             setShowGenerateModal(false);
             await loadData();
 
-            toast.success(`Generated ${result.placedLessonsCount} lessons. Failed: ${result.failedVerticesCount}.`);
+            toast.success("Generation finished");
         } catch (err) {
             if (isRequestCanceled(err)) {
                 toast.info("Generation stopped");
@@ -509,7 +548,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
             setGenerationResult(result);
             await loadData();
 
-            toast.success(`Retry finished. Placed ${result.placedLessonsCount} lessons. Failed: ${result.failedVerticesCount}.`);
+            toast.success("Retry finished");
         } catch (err) {
             if (isRequestCanceled(err)) {
                 toast.info("Retry stopped");
@@ -650,6 +689,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                         while (slotIndex < slotsToExport.length) {
                             const slot = slotsToExport[slotIndex];
                             const lesson = getLessonForExportCell(filteredLessons, group.name, slot, day);
+                            const lunch = getLunchForExportCell(lunches, group.id, slot, day);
 
                             if (lesson) {
                                 const span = getLessonDurationSpan(lesson, slotIndex, slotsToExport.length);
@@ -659,6 +699,26 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
 
                                 row.push(makeLessonExportText(lesson));
                                 styledCells.set(cellAddress, { fill: color.fill, text: color.text, bold: true });
+
+                                if (span > 1) {
+                                    merges.push({
+                                        s: { r: currentExcelRow, c: cellColumnIndex },
+                                        e: { r: currentExcelRow, c: cellColumnIndex + span - 1 },
+                                    });
+
+                                    for (let offset = 1; offset < span; offset += 1) {
+                                        row.push("");
+                                    }
+                                }
+
+                                slotIndex += span;
+                            } else if (lunch) {
+                                const span = getLunchDurationSpan(lunch, slotIndex, slotsToExport);
+                                const cellColumnIndex = 2 + slotIndex;
+                                const cellAddress = XLSX.utils.encode_cell({ r: currentExcelRow, c: cellColumnIndex });
+
+                                row.push("Lunch");
+                                styledCells.set(cellAddress, { fill: LUNCH_EXPORT_STYLE.fill, text: LUNCH_EXPORT_STYLE.text, bold: true });
 
                                 if (span > 1) {
                                     merges.push({
@@ -847,6 +907,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                     while (slotIndex < slotsToExport.length) {
                         const slot = slotsToExport[slotIndex];
                         const lesson = getLessonForExportCell(filteredLessons, group.name, slot, day);
+                        const lunch = getLunchForExportCell(lunches, group.id, slot, day);
 
                         if (lesson) {
                             const span = getLessonDurationSpan(lesson, slotIndex, slotsToExport.length);
@@ -861,6 +922,23 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                                     fontStyle: "bold",
                                     valign: "middle",
                                     halign: "left",
+                                    minCellHeight: 16,
+                                },
+                            });
+
+                            slotIndex += span;
+                        } else if (lunch) {
+                            const span = getLunchDurationSpan(lunch, slotIndex, slotsToExport);
+
+                            row.push({
+                                content: "Lunch",
+                                colSpan: span,
+                                styles: {
+                                    fillColor: hexToRgb(LUNCH_EXPORT_STYLE.fill),
+                                    textColor: hexToRgb(LUNCH_EXPORT_STYLE.text),
+                                    fontStyle: "bold",
+                                    valign: "middle",
+                                    halign: "center",
                                     minCellHeight: 16,
                                 },
                             });
@@ -992,17 +1070,30 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         }
     };
 
-    const handleSaveAssignment = async (data: AssignmentRequest) => {
+    const handleSaveAssignment = async (data: AssignmentRequest | AssignmentRequest[]) => {
         try {
             setActionLoading(true);
             setError("");
 
             if (editingAssignment) {
+                if (Array.isArray(data)) {
+                    showErrorToast("Cannot update multiple assignments at once");
+                    return;
+                }
+
                 await assignmentApi.updateAssignment(timetableId, editingAssignment.id, data);
                 toast.success("Assignment updated");
             } else {
-                await assignmentApi.createAssignment(timetableId, data);
-                toast.success("Assignment created");
+                const assignmentsToCreate = Array.isArray(data) ? data : [data];
+
+                await Promise.all(
+                    assignmentsToCreate.map((assignment) =>
+                        assignmentApi.createAssignment(timetableId, assignment),
+                    ),
+                );
+                toast.success(
+                    `${assignmentsToCreate.length} assignment${assignmentsToCreate.length === 1 ? "" : "s"} created`,
+                );
             }
 
             setShowAssignmentForm(false);
@@ -1106,6 +1197,10 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
         );
     };
 
+    const handleGridZoomChange = (zoom: number) => {
+        setGridZoom(Math.min(Math.max(Math.round(zoom * 100), MIN_GRID_ZOOM), MAX_GRID_ZOOM));
+    };
+
     const commitGridZoomDraft = () => {
         const nextZoom = Number(gridZoomDraft);
 
@@ -1200,7 +1295,6 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-sm text-muted-foreground">View:</span>
                                 {(["compact", "medium", "large"] as GridDensity[]).map((item) => <Button key={item} size="sm" variant={density === item ? "default" : "outline"} onClick={() => setDensity(item)}>{item}</Button>)}
                                 <div className="ml-1 flex items-center overflow-hidden rounded-lg border border-border bg-background shadow-sm">
                                     <Button
@@ -1254,7 +1348,6 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                                         <Plus className="h-4 w-4" />
                                     </Button>
                                 </div>
-                                <Button size="sm" variant="outline" onClick={() => { setEditingTimeSlot(null); setTimeSlotModalOpen(true); }}><Settings2 className="h-4 w-4" />Time slot</Button>
                             </div>
                         </div>
                     </div>
@@ -1271,6 +1364,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                                 lunchBlocks={filteredLunches}
                                 density={density}
                                 zoom={gridZoom / 100}
+                                onZoomChange={handleGridZoomChange}
                                 onCellClick={handleCellClick}
                                 onLessonClick={handleLessonClick}
                                 onLessonEdit={(lesson) => {
@@ -1322,9 +1416,9 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
             />
 
             <Dialog open={showAssignmentForm} onOpenChange={(open) => { if (!open) { setShowAssignmentForm(false); setEditingAssignment(null); } }}>
-                <DialogContent className="custom-scrollbar max-h-[90vh] max-w-2xl overflow-y-auto">
-                    <DialogHeader>
-                        <DialogTitle>{editingAssignment ? "Edit Assignment" : "New Assignment"}</DialogTitle>
+                <DialogContent className="max-h-[90vh] max-w-7xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+                    <DialogHeader className="shrink-0 border-b border-border pb-3">
+                        <DialogTitle>{editingAssignment ? "Edit Assignment" : "New Assignments"}</DialogTitle>
                         </DialogHeader>
                     <AssignmentForm
                         initialAssignment={editingAssignment}
@@ -1346,6 +1440,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
             {generationResult && (
                 <GenerationResultModal
                     result={generationResult}
+                    assignments={assignments}
                     retrying={runningGenerationAction === "retry"}
                     onClose={() => setGenerationResult(null)}
                     onManualPlace={(assignmentId) => { setGenerationResult(null); openManualModal(assignmentId); }}

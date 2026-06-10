@@ -8,6 +8,7 @@ import {
     Edit,
     Plus,
     Trash2,
+    X,
 } from "lucide-react";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -48,6 +49,7 @@ import AssignmentForm from "./components/AssignmentForm";
 
 type SortField = "subjectName" | "teacherName" | "placementStatus";
 type SortDirection = "asc" | "desc";
+const LAST_WORKED_TIMETABLE_STORAGE_KEY = "last-worked-timetable-id";
 
 function getApiErrorMessage(error: unknown, fallback: string) {
     if (
@@ -146,6 +148,10 @@ export default function AssignmentsPage({
             return;
         }
 
+        window.localStorage.setItem(
+            LAST_WORKED_TIMETABLE_STORAGE_KEY,
+            String(timetableId),
+        );
         void loadData(true);
     }, [timetableId]);
 
@@ -299,13 +305,18 @@ export default function AssignmentsPage({
         }
     }, []);
 
-    const handleSaveAssignment = async (data: AssignmentRequest) => {
+    const handleSaveAssignment = async (data: AssignmentRequest | AssignmentRequest[]) => {
         try {
             setSaving(true);
             setError("");
             setSuccessMessage("");
 
             if (editingAssignment) {
+                if (Array.isArray(data)) {
+                    setError("Cannot update multiple assignments at once");
+                    return;
+                }
+
                 await assignmentApi.updateAssignment(
                     timetableId,
                     editingAssignment.id,
@@ -314,8 +325,16 @@ export default function AssignmentsPage({
 
                 setSuccessMessage("Assignment updated successfully");
             } else {
-                await assignmentApi.createAssignment(timetableId, data);
-                setSuccessMessage("Assignment created successfully");
+                const assignmentsToCreate = Array.isArray(data) ? data : [data];
+
+                await Promise.all(
+                    assignmentsToCreate.map((assignment) =>
+                        assignmentApi.createAssignment(timetableId, assignment),
+                    ),
+                );
+                setSuccessMessage(
+                    `${assignmentsToCreate.length} assignment${assignmentsToCreate.length === 1 ? "" : "s"} created successfully`,
+                );
             }
 
             closeForm();
@@ -509,9 +528,6 @@ export default function AssignmentsPage({
                     </CardHeader>
                     <CardContent>
                         <div className="text-3xl font-bold">{manualCount}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                            Need manual placement
-                        </p>
                     </CardContent>
                 </Card>
             </section>
@@ -722,16 +738,16 @@ export default function AssignmentsPage({
 
             {isFormOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-                    <div className="glass-card custom-scrollbar max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-card p-6 shadow-2xl">
-                        <div className="mb-6 flex items-start justify-between gap-4">
+                    <div className="glass-card flex max-h-[90vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl bg-card p-6 shadow-2xl">
+                        <div className="mb-3 flex shrink-0 items-start justify-between gap-4 border-b border-border pb-3">
                             <div>
                                 <h3 className="text-lg font-semibold">
                                     {editingAssignment
                                         ? "Edit Assignment"
-                                        : "Create Assignment"}
+                                        : "Create Assignments"}
                                 </h3>
                                 <p className="mt-1 text-sm text-muted-foreground">
-                                    Select subject, teacher, groups and scheduling options.
+                                    Select subject, teacher, groups and shared scheduling options.
                                 </p>
                             </div>
 
@@ -743,7 +759,7 @@ export default function AssignmentsPage({
                                 disabled={saving}
                                 aria-label="Close assignment form"
                             >
-                                X
+                                <X className="h-4 w-4" />
                             </Button>
                         </div>
 

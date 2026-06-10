@@ -21,6 +21,7 @@ import {
     CardContent,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getAssignmentLessonStats, normalizePlacementStatus } from "@/lib";
 import type { AssignmentResponse } from "@/lib/types";
 
 type AssignmentFilter = "ALL" | "SCHEDULED" | "PARTIAL" | "UNPLACED";
@@ -37,39 +38,6 @@ interface AssignmentsDrawerProps {
     retrying?: boolean;
     onRetryFailed?: (assignments: AssignmentResponse[]) => void;
     onStopRetry?: () => void;
-}
-
-function normalizePlacementStatus(status?: string | null): AssignmentFilter {
-    const normalized = String(status || "").toUpperCase();
-
-    if (
-        normalized === "SCHEDULED" ||
-        normalized === "PLACED" ||
-        normalized === "FULLY_SCHEDULED" ||
-        normalized === "COMPLETE"
-    ) {
-        return "SCHEDULED";
-    }
-
-    if (
-        normalized === "PARTIAL" ||
-        normalized === "PARTIALLY_SCHEDULED" ||
-        normalized === "PARTIALLY_PLACED"
-    ) {
-        return "PARTIAL";
-    }
-
-    if (
-        normalized === "UNPLACED" ||
-        normalized === "FAILED" ||
-        normalized === "MANUAL_REQUIRED" ||
-        normalized === "UNSCHEDULED" ||
-        normalized === "PENDING"
-    ) {
-        return "UNPLACED";
-    }
-
-    return "PARTIAL";
 }
 
 function getStatusBadgeVariant(status: AssignmentFilter) {
@@ -121,41 +89,15 @@ export default function AssignmentsDrawer({
     }, [open, onClose]);
 
     useEffect(() => {
-        if (!open) {
+        if (open) {
+            setFilter(initialFilter);
+        } else {
             setSearchQuery("");
             setFilter("ALL");
-        } else {
-            setFilter(initialFilter);
         }
     }, [initialFilter, open]);
 
-    const summary = useMemo(() => {
-        return assignments.reduce(
-            (acc, assignment) => {
-                const status = normalizePlacementStatus(
-                    assignment.placementStatus,
-                );
-
-                acc.total += 1;
-
-                if (status === "SCHEDULED") {
-                    acc.scheduled += 1;
-                } else if (status === "PARTIAL") {
-                    acc.partial += 1;
-                } else if (status === "UNPLACED") {
-                    acc.unplaced += 1;
-                }
-
-                return acc;
-            },
-            {
-                total: 0,
-                scheduled: 0,
-                partial: 0,
-                unplaced: 0,
-            },
-        );
-    }, [assignments]);
+    const summary = useMemo(() => getAssignmentLessonStats(assignments), [assignments]);
 
     const filteredAssignments = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
@@ -219,7 +161,11 @@ export default function AssignmentsDrawer({
                         </h2>
                         <p className="mt-1 text-sm text-muted-foreground">
                             {summary.total} total - {summary.scheduled} scheduled -{" "}
-                            {summary.partial} partial - {summary.unplaced} unplaced
+                            {summary.partial} partial - {summary.unplaced} unplaced assignments
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            {summary.placedLessons}/{summary.requiredLessons} lessons scheduled -{" "}
+                            {summary.unplacedLessons} lessons still unplaced
                         </p>
                     </div>
 
