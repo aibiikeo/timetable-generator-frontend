@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type WheelEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx-js-style";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -15,14 +15,18 @@ import { publicTimetableApi } from "@/lib";
 import { DAYS_OF_WEEK } from "@/lib/constants";
 import type {
     DayOfWeek,
+    LessonResponse,
     LunchResponse,
     PublicTimetableFilterOptionsResponse,
     PublicFilterOptionResponse,
     PublicTimetableLessonResponse,
     PublicTimetableQuery,
     PublicTimetableScheduleResponse,
+    StudyGroupResponse,
+    TimeSlot as AdminTimeSlot,
 } from "@/lib/types";
 import ExportModal from "../timetables/[id]/components/ExportModal";
+import TimetableGrid, { type GridDensity } from "../timetables/[id]/components/TimetableGrid";
 
 type FilterKey = "facultyId" | "departmentId" | "groupId" | "teacherId" | "roomId";
 type RowMode = "group" | "room";
@@ -31,13 +35,7 @@ type FilterState = Record<FilterKey, string> & {
     dayOfWeek: DayOfWeek | "ALL";
 };
 
-interface TimeSlot {
-    key: string;
-    order: number;
-    startTime: string;
-    endTime: string;
-    description: string;
-}
+type TimeSlot = AdminTimeSlot & { key: string };
 
 interface RowItem {
     id: number;
@@ -56,6 +54,7 @@ const EMPTY_FILTERS: FilterState = {
 };
 
 const EMPTY_OPTIONS: PublicFilterOptionResponse[] = [];
+const EMPTY_LUNCHES: LunchResponse[] = [];
 const EMPTY_FILTER_OPTIONS: PublicTimetableFilterOptions = {
     faculties: EMPTY_OPTIONS,
     departments: EMPTY_OPTIONS,
@@ -64,6 +63,7 @@ const EMPTY_FILTER_OPTIONS: PublicTimetableFilterOptions = {
     rooms: EMPTY_OPTIONS,
 };
 const ALL_ROOMS_VALUE = "__ALL_ROOMS__";
+const DENSITY_OPTIONS: GridDensity[] = ["compact", "medium", "large"];
 
 const SECONDARY_FILTERS: {
     key: FilterKey;
@@ -78,29 +78,25 @@ const SECONDARY_FILTERS: {
 ];
 
 const VISIBLE_DAYS = DAYS_OF_WEEK.filter((day) => day !== "SUNDAY");
-const DAY_COLUMN_WIDTH = 132;
-const ROW_COLUMN_WIDTH = 188;
-const SLOT_WIDTH = 146;
-const CELL_HEIGHT = 112;
 const MIN_GRID_ZOOM = 60;
 const MAX_GRID_ZOOM = 150;
 const GRID_ZOOM_STEP = 10;
 
 const STANDARD_TIME_SLOTS: TimeSlot[] = [
-    { key: "08:00", order: 1, startTime: "08:00:00", endTime: "08:40:00", description: "1st lesson" },
-    { key: "08:45", order: 2, startTime: "08:45:00", endTime: "09:25:00", description: "2nd lesson" },
-    { key: "09:30", order: 3, startTime: "09:30:00", endTime: "10:10:00", description: "3rd lesson" },
-    { key: "10:15", order: 4, startTime: "10:15:00", endTime: "10:55:00", description: "4th lesson" },
-    { key: "11:00", order: 5, startTime: "11:00:00", endTime: "11:40:00", description: "5th lesson" },
-    { key: "11:45", order: 6, startTime: "11:45:00", endTime: "12:25:00", description: "6th lesson" },
-    { key: "12:30", order: 7, startTime: "12:30:00", endTime: "13:10:00", description: "7th lesson" },
-    { key: "13:15", order: 8, startTime: "13:15:00", endTime: "13:55:00", description: "8th lesson" },
-    { key: "14:00", order: 9, startTime: "14:00:00", endTime: "14:40:00", description: "9th lesson" },
-    { key: "14:45", order: 10, startTime: "14:45:00", endTime: "15:25:00", description: "10th lesson" },
-    { key: "15:30", order: 11, startTime: "15:30:00", endTime: "16:10:00", description: "11th lesson" },
-    { key: "16:15", order: 12, startTime: "16:15:00", endTime: "16:55:00", description: "12th lesson" },
-    { key: "17:00", order: 13, startTime: "17:00:00", endTime: "17:40:00", description: "13th lesson" },
-    { key: "17:45", order: 14, startTime: "17:45:00", endTime: "18:25:00", description: "14th lesson" },
+    { id: 1, key: "08:00", order: 1, startTime: "08:00:00", endTime: "08:40:00", description: "1st lesson" },
+    { id: 2, key: "08:45", order: 2, startTime: "08:45:00", endTime: "09:25:00", description: "2nd lesson" },
+    { id: 3, key: "09:30", order: 3, startTime: "09:30:00", endTime: "10:10:00", description: "3rd lesson" },
+    { id: 4, key: "10:15", order: 4, startTime: "10:15:00", endTime: "10:55:00", description: "4th lesson" },
+    { id: 5, key: "11:00", order: 5, startTime: "11:00:00", endTime: "11:40:00", description: "5th lesson" },
+    { id: 6, key: "11:45", order: 6, startTime: "11:45:00", endTime: "12:25:00", description: "6th lesson" },
+    { id: 7, key: "12:30", order: 7, startTime: "12:30:00", endTime: "13:10:00", description: "7th lesson" },
+    { id: 8, key: "13:15", order: 8, startTime: "13:15:00", endTime: "13:55:00", description: "8th lesson" },
+    { id: 9, key: "14:00", order: 9, startTime: "14:00:00", endTime: "14:40:00", description: "9th lesson" },
+    { id: 10, key: "14:45", order: 10, startTime: "14:45:00", endTime: "15:25:00", description: "10th lesson" },
+    { id: 11, key: "15:30", order: 11, startTime: "15:30:00", endTime: "16:10:00", description: "11th lesson" },
+    { id: 12, key: "16:15", order: 12, startTime: "16:15:00", endTime: "16:55:00", description: "12th lesson" },
+    { id: 13, key: "17:00", order: 13, startTime: "17:00:00", endTime: "17:40:00", description: "13th lesson" },
+    { id: 14, key: "17:45", order: 14, startTime: "17:45:00", endTime: "18:25:00", description: "14th lesson" },
 ];
 
 const EXPORT_COLORS = [
@@ -142,49 +138,6 @@ function getQuery(filters: FilterState): PublicTimetableQuery {
     }
 
     return query;
-}
-
-function getLessonColor(value: string) {
-    const colors = [
-        "border-blue-200 bg-blue-50 text-blue-950",
-        "border-emerald-200 bg-emerald-50 text-emerald-950",
-        "border-violet-200 bg-violet-50 text-violet-950",
-        "border-amber-200 bg-amber-50 text-amber-950",
-        "border-cyan-200 bg-cyan-50 text-cyan-950",
-        "border-rose-200 bg-rose-50 text-rose-950",
-    ];
-
-    let hash = 0;
-
-    for (let index = 0; index < value.length; index += 1) {
-        hash = value.charCodeAt(index) + ((hash << 5) - hash);
-    }
-
-    return colors[Math.abs(hash) % colors.length];
-}
-
-function normalizeZoom(zoom?: number) {
-    if (!Number.isFinite(zoom)) return 1;
-    return Math.min(Math.max(Number(zoom), MIN_GRID_ZOOM / 100), MAX_GRID_ZOOM / 100);
-}
-
-function getScaledGridConfig(zoom?: number) {
-    const scale = normalizeZoom(zoom);
-
-    return {
-        scale,
-        dayColumnWidth: Math.round(DAY_COLUMN_WIDTH * scale),
-        rowColumnWidth: Math.round(ROW_COLUMN_WIDTH * scale),
-        slotWidth: Math.round(SLOT_WIDTH * scale),
-        cellHeight: Math.round(CELL_HEIGHT * scale),
-        headerPaddingX: Math.max(8, Math.round(16 * scale)),
-        headerPaddingY: Math.max(8, Math.round(16 * scale)),
-        cellPadding: Math.max(4, Math.round(8 * scale)),
-        headerFontSize: Math.max(12, Math.round(14 * scale)),
-        cardPadding: Math.max(8, Math.round(12 * scale)),
-        titleFontSize: Math.max(12, Math.round(14 * scale)),
-        metaFontSize: Math.max(10, Math.round(12 * scale)),
-    };
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -404,12 +357,69 @@ function lessonBelongsToRow(lesson: PublicTimetableLessonResponse, row: RowItem,
     return lesson.groups.some((group) => group.id === row.id);
 }
 
+function inferCourseFromName(name: string, academicYearStart?: number) {
+    const match = /-(\d{2})\b/.exec(name);
+    if (!match) return 1;
+
+    const admissionYear = 2000 + Number(match[1]);
+    const referenceYear = academicYearStart ?? new Date().getFullYear();
+    const course = referenceYear - admissionYear + 1;
+
+    return Math.min(Math.max(course, 1), 6);
+}
+
+function toGridGroup(
+    row: RowItem,
+    lessons: PublicTimetableLessonResponse[],
+    mode: RowMode,
+    academicYearStart?: number,
+): StudyGroupResponse {
+    const lesson = lessons.find((item) => lessonBelongsToRow(item, row, mode));
+
+    return {
+        id: row.id,
+        name: row.name,
+        course: mode === "group" ? inferCourseFromName(row.name, academicYearStart) : 1,
+        studentCount: 0,
+        majorId: lesson?.majorId ?? 0,
+        majorName: lesson?.majorName ?? "",
+        degree: lesson?.degree ?? "BACHELOR",
+        departmentId: lesson?.departmentId ?? 0,
+        departmentName: lesson?.departmentName ?? "",
+        facultyId: lesson?.facultyId ?? 0,
+        facultyName: lesson?.facultyName ?? "",
+    };
+}
+
+function toGridLesson(lesson: PublicTimetableLessonResponse, mode: RowMode): LessonResponse {
+    return {
+        id: lesson.id,
+        timetableId: lesson.timetableId,
+        assignmentId: lesson.id,
+        subjectName: lesson.subjectName,
+        teacherName: lesson.teacherName || "",
+        groupNames: mode === "room" ? [lesson.roomName || "No room"] : lesson.groups.map((group) => group.name),
+        roomName: lesson.roomName,
+        dayOfWeek: lesson.dayOfWeek,
+        startTime: lesson.startTime,
+        durationHours: lesson.durationHours,
+        majorId: lesson.majorId,
+        majorName: lesson.majorName,
+        degree: lesson.degree,
+        departmentId: lesson.departmentId,
+        departmentName: lesson.departmentName,
+        facultyId: lesson.facultyId,
+        facultyName: lesson.facultyName,
+    };
+}
+
 export default function AiuTimetablePage() {
     const [filtersData, setFiltersData] = useState<PublicTimetableFilterOptions>(() => buildFilterOptions([]));
     const [schedule, setSchedule] = useState<PublicTimetableScheduleResponse | null>(null);
     const [lunches, setLunches] = useState<LunchResponse[]>([]);
     const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
     const [gridZoom, setGridZoom] = useState(100);
+    const [gridDensity, setGridDensity] = useState<GridDensity>("medium");
     const [editingGridZoom, setEditingGridZoom] = useState(false);
     const [gridZoomDraft, setGridZoomDraft] = useState("100");
     const [showExportModal, setShowExportModal] = useState(false);
@@ -473,6 +483,14 @@ export default function AiuTimetablePage() {
     const rows = useMemo(
         () => getRows(rowMode, filters, filtersData, lessons),
         [filters, filtersData, lessons, rowMode],
+    );
+    const gridGroups = useMemo(
+        () => rows.map((row) => toGridGroup(row, lessons, rowMode, schedule?.timetable?.academicYearStart)),
+        [lessons, rowMode, rows, schedule?.timetable?.academicYearStart],
+    );
+    const gridLessons = useMemo(
+        () => lessons.map((lesson) => toGridLesson(lesson, rowMode)),
+        [lessons, rowMode],
     );
 
     const loadInitialData = async () => {
@@ -1039,6 +1057,23 @@ export default function AiuTimetablePage() {
                     <Card className="glass-card relative z-0">
                         <CardContent className="p-4">
                             <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+                                <div className="flex items-center gap-2">
+                                    {DENSITY_OPTIONS.map((density) => (
+                                        <button
+                                            key={density}
+                                            type="button"
+                                            onClick={() => setGridDensity(density)}
+                                            className={[
+                                                "h-9 rounded-lg border px-3 text-sm font-medium transition-colors",
+                                                gridDensity === density
+                                                    ? "border-slate-950 bg-slate-950 text-white"
+                                                    : "border-border bg-background text-foreground hover:bg-muted",
+                                            ].join(" ")}
+                                        >
+                                            {density}
+                                        </button>
+                                    ))}
+                                </div>
                                 <div className="flex items-center overflow-hidden rounded-lg border border-border bg-background shadow-sm">
                                     <Button
                                         type="button"
@@ -1098,19 +1133,21 @@ export default function AiuTimetablePage() {
                                         <Skeleton key={index} className="h-24 w-full" />
                                     ))}
                                 </div>
-                            ) : lessons.length === 0 || rows.length === 0 ? (
+                            ) : lessons.length === 0 || gridGroups.length === 0 ? (
                                 <EmptyState title="No lessons found" description="No lessons match the selected filters." />
                             ) : (
-                                <PublicTimetableGrid
-                                    days={days}
-                                    rowMode={rowMode}
-                                    rows={rows}
-                                    lessons={lessons}
-                                    lunches={lunches}
-                                    teacherSelected={Boolean(filters.teacherId)}
-                                    roomSelected={Boolean(filters.roomId)}
+                                <TimetableGrid
+                                    lessons={gridLessons}
+                                    groups={gridGroups}
+                                    selectedDay={filters.dayOfWeek}
+                                    timeSlots={STANDARD_TIME_SLOTS}
+                                    lunchBlocks={rowMode === "group" ? lunches : EMPTY_LUNCHES}
+                                    density={gridDensity}
                                     zoom={gridZoom / 100}
                                     onZoomChange={handleGridZoomChange}
+                                    readOnly
+                                    rowHeaderLabel={rowMode === "room" ? "Room" : "Group"}
+                                    showEmptyCellPlaceholder={false}
                                 />
                             )}
                         </CardContent>
@@ -1305,290 +1342,5 @@ function SearchableOption({
             <span className={`truncate ${muted ? "text-muted-foreground" : "text-foreground"}`}>{label}</span>
             {selected && <Check className="h-4 w-4 shrink-0 text-primary" />}
         </button>
-    );
-}
-
-function PublicTimetableGrid({
-    days,
-    rowMode,
-    rows,
-    lessons,
-    lunches,
-    teacherSelected,
-    roomSelected,
-    zoom = 1,
-    onZoomChange,
-}: {
-    days: DayOfWeek[];
-    rowMode: RowMode;
-    rows: RowItem[];
-    lessons: PublicTimetableLessonResponse[];
-    lunches: LunchResponse[];
-    teacherSelected: boolean;
-    roomSelected: boolean;
-    zoom?: number;
-    onZoomChange?: (zoom: number) => void;
-}) {
-    const scrollRef = useRef<HTMLDivElement | null>(null);
-    const zoomAnchorRef = useRef<{
-        zoom: number;
-        x: number;
-        y: number;
-        scrollLeft: number;
-        scrollTop: number;
-    } | null>(null);
-    const normalizedZoom = normalizeZoom(zoom);
-    const config = getScaledGridConfig(normalizedZoom);
-    const minWidth = config.dayColumnWidth + config.rowColumnWidth + STANDARD_TIME_SLOTS.length * config.slotWidth;
-
-    useLayoutEffect(() => {
-        const anchor = zoomAnchorRef.current;
-        const scroller = scrollRef.current;
-
-        if (!anchor || !scroller || anchor.zoom === normalizedZoom) return;
-
-        const ratio = normalizedZoom / anchor.zoom;
-        scroller.scrollLeft = (anchor.scrollLeft + anchor.x) * ratio - anchor.x;
-        scroller.scrollTop = (anchor.scrollTop + anchor.y) * ratio - anchor.y;
-        zoomAnchorRef.current = null;
-    }, [normalizedZoom]);
-
-    const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
-        if (!onZoomChange || (!event.ctrlKey && !event.metaKey)) return;
-
-        event.preventDefault();
-
-        const scroller = scrollRef.current;
-        if (!scroller) return;
-
-        const rect = scroller.getBoundingClientRect();
-        const nextZoom = normalizeZoom(normalizedZoom * Math.exp(-event.deltaY * 0.0015));
-
-        if (nextZoom === normalizedZoom) return;
-
-        zoomAnchorRef.current = {
-            zoom: normalizedZoom,
-            x: event.clientX - rect.left,
-            y: event.clientY - rect.top,
-            scrollLeft: scroller.scrollLeft,
-            scrollTop: scroller.scrollTop,
-        };
-        onZoomChange(nextZoom);
-    };
-
-    return (
-        <div ref={scrollRef} onWheel={handleWheel} className="custom-scrollbar max-h-[760px] overflow-auto rounded-2xl border border-border bg-white">
-            <table
-                className="w-full border-separate border-spacing-0 text-sm"
-                style={{ minWidth }}
-            >
-                <thead>
-                <tr>
-                    <th
-                        className="sticky left-0 top-0 z-50 border-b border-r border-border bg-zinc-50 px-4 py-4 text-left font-semibold text-muted-foreground"
-                        style={{
-                            width: config.dayColumnWidth,
-                            minWidth: config.dayColumnWidth,
-                            padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`,
-                            fontSize: config.headerFontSize,
-                        }}
-                    >
-                        Day
-                    </th>
-                    <th
-                        className="sticky top-0 z-40 border-b border-r border-border bg-zinc-50 px-4 py-4 text-left font-semibold text-muted-foreground"
-                        style={{
-                            left: config.dayColumnWidth,
-                            width: config.rowColumnWidth,
-                            minWidth: config.rowColumnWidth,
-                            padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`,
-                            fontSize: config.headerFontSize,
-                        }}
-                    >
-                        {rowMode === "room" ? "Room" : "Group"}
-                    </th>
-                    {STANDARD_TIME_SLOTS.map((slot) => (
-                        <th
-                            key={slot.key}
-                            className="sticky top-0 z-30 border-b border-r border-border bg-zinc-50 px-3 py-4 text-center font-semibold text-muted-foreground last:border-r-0"
-                            style={{
-                                width: config.slotWidth,
-                                minWidth: config.slotWidth,
-                                padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`,
-                                fontSize: config.headerFontSize,
-                            }}
-                        >
-                            {formatTime(slot.startTime)}-{formatTime(slot.endTime)}
-                        </th>
-                    ))}
-                </tr>
-                </thead>
-                <tbody>
-                {days.flatMap((day) => rows.map((row, rowIndex) => {
-                    const dayLessons = lessons.filter((lesson) => lesson.dayOfWeek === day);
-                    const dayLunches = lunches.filter((lunch) => lunch.dayOfWeek === day);
-
-                    return (
-                        <tr key={`${day}-${row.id}`}>
-                            {rowIndex === 0 && (
-                                <th
-                                    rowSpan={rows.length}
-                                    className="sticky left-0 z-30 border-b border-r border-border bg-white px-4 py-4 text-left align-top font-semibold shadow-[1px_0_0_var(--border)]"
-                                    style={{
-                                        width: config.dayColumnWidth,
-                                        minWidth: config.dayColumnWidth,
-                                        padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`,
-                                        fontSize: config.headerFontSize,
-                                    }}
-                                >
-                                    {formatDay(day)}
-                                </th>
-                            )}
-                            <th
-                                className="sticky z-20 border-b border-r border-border bg-white px-4 py-4 text-left align-top font-medium shadow-[1px_0_0_var(--border)]"
-                                style={{
-                                    left: config.dayColumnWidth,
-                                    width: config.rowColumnWidth,
-                                    minWidth: config.rowColumnWidth,
-                                    padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`,
-                                    fontSize: config.headerFontSize,
-                                }}
-                            >
-                                {row.name}
-                            </th>
-                            {renderGridCells(row, rowMode, day, dayLessons, dayLunches, teacherSelected, roomSelected, config)}
-                        </tr>
-                    );
-                }))}
-                </tbody>
-            </table>
-        </div>
-    );
-}
-
-function renderGridCells(
-    row: RowItem,
-    rowMode: RowMode,
-    day: DayOfWeek,
-    lessons: PublicTimetableLessonResponse[],
-    lunches: LunchResponse[],
-    teacherSelected: boolean,
-    roomSelected: boolean,
-    config: ReturnType<typeof getScaledGridConfig>,
-) {
-    const cells = [];
-    let slotIndex = 0;
-
-    while (slotIndex < STANDARD_TIME_SLOTS.length) {
-        const slot = STANDARD_TIME_SLOTS[slotIndex];
-        const cellLessons = lessons.filter((lesson) =>
-            lessonBelongsToRow(lesson, row, rowMode) &&
-            getLessonSlotKey(lesson) === slot.key,
-        );
-        const lunch = getLunchForCell(lunches, row, slot, day, rowMode);
-
-        if (cellLessons.length > 0) {
-            const span = Math.max(
-                ...cellLessons.map((lesson) => getLessonSpan(lesson, STANDARD_TIME_SLOTS.length - slotIndex)),
-            );
-
-            cells.push(
-                <td
-                    key={`${row.id}-${slot.key}`}
-                    colSpan={span}
-                    className="border-b border-r border-border bg-white p-2 align-top last:border-r-0"
-                    style={{
-                        minWidth: config.slotWidth * span,
-                        height: config.cellHeight,
-                        padding: config.cellPadding,
-                    }}
-                >
-                    <div className="space-y-2">
-                        {cellLessons.map((lesson) => (
-                            <LessonBlock
-                                key={lesson.id}
-                                lesson={lesson}
-                                teacherSelected={teacherSelected}
-                                roomSelected={roomSelected}
-                                config={config}
-                            />
-                        ))}
-                    </div>
-                </td>,
-            );
-
-            slotIndex += span;
-        } else if (lunch) {
-            const span = getLunchSpan(lunch, slotIndex);
-
-            cells.push(
-                <td
-                    key={`${row.id}-${slot.key}`}
-                    colSpan={span}
-                    className="border-b border-r border-border bg-white p-2 align-top last:border-r-0"
-                    style={{
-                        minWidth: config.slotWidth * span,
-                        height: config.cellHeight,
-                        padding: config.cellPadding,
-                    }}
-                >
-                    <LunchBlock />
-                </td>,
-            );
-
-            slotIndex += span;
-        } else {
-            cells.push(
-                <td
-                    key={`${row.id}-${slot.key}`}
-                    className="border-b border-r border-border bg-white p-2 align-top last:border-r-0"
-                    style={{
-                        minWidth: config.slotWidth,
-                        height: config.cellHeight,
-                        padding: config.cellPadding,
-                    }}
-                />,
-            );
-            slotIndex += 1;
-        }
-    }
-
-    return cells;
-}
-
-function LunchBlock() {
-    return (
-        <div className="flex h-full min-h-20 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 p-3 text-center text-amber-900 shadow-sm">
-            <div className="font-semibold">Lunch</div>
-        </div>
-    );
-}
-
-function LessonBlock({
-    lesson,
-    teacherSelected,
-    roomSelected,
-    config,
-}: {
-    lesson: PublicTimetableLessonResponse;
-    teacherSelected: boolean;
-    roomSelected: boolean;
-    config: ReturnType<typeof getScaledGridConfig>;
-}) {
-    const groups = lesson.groups.map((group) => group.name).join(", ");
-    const secondLine = teacherSelected ? groups : lesson.teacherName;
-    const thirdLine = roomSelected ? groups : lesson.roomName || "No room";
-
-    return (
-        <article
-            className={`h-full min-h-20 rounded-xl border shadow-sm ${getLessonColor(lesson.subjectName)}`}
-            style={{ padding: config.cardPadding }}
-        >
-            <div className="line-clamp-2 font-semibold leading-5" style={{ fontSize: config.titleFontSize }}>
-                {lesson.subjectName}
-            </div>
-            <div className="mt-1 truncate opacity-80" style={{ fontSize: config.metaFontSize }}>{secondLine}</div>
-            <div className="mt-1 truncate opacity-80" style={{ fontSize: config.metaFontSize }}>{thirdLine}</div>
-        </article>
     );
 }

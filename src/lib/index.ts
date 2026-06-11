@@ -18,8 +18,11 @@ export { userApi } from "./userApi";
 
 export {
     getApiErrorMessage,
+    getDeleteErrorMessage,
     getDeleteRelatedRecordsMessage,
     getDeleteSuccessMessage,
+    getMissingResourceMessage,
+    isMissingResourceError,
 } from "./apiError";
 export {
     compactGroups,

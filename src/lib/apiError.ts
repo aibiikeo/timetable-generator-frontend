@@ -39,6 +39,84 @@ function formatUnknownDetail(value: unknown): string {
     }
 }
 
+function getErrorText(error: unknown): string {
+    if (
+        typeof error === "object" &&
+        error !== null &&
+        "response" in error
+    ) {
+        const axiosLikeError = error as {
+            response?: {
+                data?: unknown;
+            };
+        };
+
+        return formatUnknownDetail(axiosLikeError.response?.data);
+    }
+
+    if (error instanceof Error) {
+        return error.message;
+    }
+
+    return formatUnknownDetail(error);
+}
+
+export function isMissingResourceError(error: unknown): boolean {
+    if (
+        typeof error === "object" &&
+        error !== null &&
+        "response" in error
+    ) {
+        const axiosLikeError = error as {
+            response?: {
+                data?: unknown;
+                status?: number;
+            };
+        };
+
+        if (axiosLikeError.response?.status === 404) {
+            return true;
+        }
+    }
+
+    const lower = getErrorText(error).toLowerCase();
+
+    return [
+        "not found",
+        "no longer exists",
+        "already updated or deleted",
+        "objectoptimisticlockingfailureexception",
+        "staleobjectstateexception",
+    ].some((pattern) => lower.includes(pattern));
+}
+
+function formatEntityName(entityName: string): string {
+    return entityName.charAt(0).toUpperCase() + entityName.slice(1);
+}
+
+export function getMissingResourceMessage(
+    entityName: string,
+    ids: number | number[],
+): string {
+    const idList = Array.isArray(ids) ? ids : [ids];
+    const entityLabel = formatEntityName(entityName);
+    const idLabel = idList.length === 1 ? `id ${idList[0]}` : `ids ${idList.join(", ")}`;
+
+    return `${entityLabel} with ${idLabel} no longer exists. Refreshing the list.`;
+}
+
+export function getDeleteErrorMessage(
+    error: unknown,
+    entityName: string,
+    ids: number | number[],
+): string {
+    if (isMissingResourceError(error)) {
+        return getMissingResourceMessage(entityName, ids);
+    }
+
+    return getDeleteRelatedRecordsMessage(entityName, ids);
+}
+
 export function getApiErrorMessage(error: unknown, fallback: string): string {
     if (
         typeof error === "object" &&

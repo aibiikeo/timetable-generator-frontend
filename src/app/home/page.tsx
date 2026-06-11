@@ -197,16 +197,20 @@ export default function HomePage() {
     }, [lastWorkedTimetableId, timetables]);
 
     const requiredLessons = useMemo(() => {
+        if (currentTimetable?.totalRequiredLessonBlocks) {
+            return currentTimetable.totalRequiredLessonBlocks;
+        }
+
         if (currentTimetable?.totalRequiredLessons) {
             return currentTimetable.totalRequiredLessons;
         }
 
         return assignments.reduce((total, assignment) => {
-            return total + (assignment.requiredLessonsCount || 0);
+            return total + (assignment.requiredLessonBlocksCount ?? assignment.requiredLessonsCount ?? 0);
         }, 0);
     }, [assignments, currentTimetable]);
 
-    const placedLessons = lessons.length || currentTimetable?.totalLessons || 0;
+    const placedLessons = lessons.length || currentTimetable?.totalLessonBlocks || currentTimetable?.totalLessons || 0;
     const unplacedLessons = Math.max(requiredLessons - placedLessons, 0);
 
     useEffect(() => {

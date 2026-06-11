@@ -3,6 +3,7 @@ import {
     DeleteMode,
     GenerationMode,
     GenerationResponse,
+    ManualPlacementSuggestionResponse,
     TimetableRequest,
     TimetableResponse,
 } from "./types";
@@ -140,6 +141,30 @@ export const timetableApi = {
 
         const response = await apiClient.post<boolean>(
             `/api/generation/timetables/${timetableId}/assignments/${assignmentId}/manual-place?${params}`,
+        );
+
+        return response.data;
+    },
+
+    suggestManualPlacements: async (
+        timetableId: number,
+        assignmentId: number,
+        durationHours: number,
+        limit = 20,
+    ): Promise<ManualPlacementSuggestionResponse[]> => {
+        validateId(timetableId);
+
+        if (Number.isNaN(assignmentId) || assignmentId <= 0) {
+            throw new Error(`Invalid assignmentId: ${assignmentId}`);
+        }
+
+        const params = new URLSearchParams({
+            durationHours: durationHours.toString(),
+            limit: limit.toString(),
+        });
+
+        const response = await apiClient.get<ManualPlacementSuggestionResponse[]>(
+            `/api/generation/timetables/${timetableId}/assignments/${assignmentId}/manual-placement-suggestions?${params}`,
         );
 
         return response.data;

@@ -1,5 +1,5 @@
 import apiClient from "./api";
-import type { LessonRequest, LessonResponse } from "./types";
+import type { LessonRequest, LessonResponse, MoveLessonRequest, MoveLessonValidationResponse } from "./types";
 
 export const lessonApi = {
     getLessonsByTimetable: async (
@@ -54,6 +54,32 @@ export const lessonApi = {
     ): Promise<LessonResponse> => {
         const response = await apiClient.put<LessonResponse>(
             `/api/timetables/${timetableId}/lessons/${lessonId}`,
+            data,
+        );
+
+        return response.data;
+    },
+
+    validateLessonMove: async (
+        timetableId: number,
+        lessonId: number,
+        data: MoveLessonRequest,
+    ): Promise<MoveLessonValidationResponse> => {
+        const response = await apiClient.post<MoveLessonValidationResponse>(
+            `/api/timetables/${timetableId}/lessons/${lessonId}/move/validate`,
+            data,
+        );
+
+        return response.data;
+    },
+
+    moveLesson: async (
+        timetableId: number,
+        lessonId: number,
+        data: MoveLessonRequest,
+    ): Promise<LessonResponse> => {
+        const response = await apiClient.patch<LessonResponse>(
+            `/api/timetables/${timetableId}/lessons/${lessonId}/move`,
             data,
         );
 

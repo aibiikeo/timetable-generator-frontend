@@ -318,16 +318,20 @@ export default function AssignmentsDrawer({
                                                             {assignment.shift}
                                                         </Badge>
 
-                                                        {assignment.generatedLessonsCount !==
+                                                        {(assignment.generatedLessonBlocksCount ??
+                                                            assignment.generatedLessonsCount) !==
                                                             undefined &&
-                                                            assignment.requiredLessonsCount !==
-                                                            undefined && (
+                                                            (assignment.requiredLessonBlocksCount ??
+                                                                assignment.requiredLessonsCount) !==
+                                                                undefined && (
                                                                 <Badge variant="outline">
                                                                     {
+                                                                        assignment.generatedLessonBlocksCount ??
                                                                         assignment.generatedLessonsCount
                                                                     }
                                                                     /
                                                                     {
+                                                                        assignment.requiredLessonBlocksCount ??
                                                                         assignment.requiredLessonsCount
                                                                     } lessons
                                                                 </Badge>

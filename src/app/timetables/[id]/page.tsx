@@ -191,6 +191,7 @@ function getDisplayTimetableName(name: string) {
 }
 
 function findLessonRoomId(lesson: LessonResponse | null, rooms: RoomResponse[]) {
+    if (lesson?.roomId) return lesson.roomId;
     if (!lesson?.roomName) return undefined;
     return rooms.find((room) => room.name === lesson.roomName)?.id;
 }
@@ -1113,8 +1114,30 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                 return;
             }
 
-            await loadData();
+            const refreshed = await loadData();
             closeManualModal();
+
+            const placedLesson = lessons.find((lesson) =>
+                lesson.assignmentId === manualAssignmentId &&
+                lesson.dayOfWeek === data.dayOfWeek &&
+                formatTime(lesson.startTime) === formatTime(data.startTime),
+            );
+
+            if (!placedLesson && refreshed) {
+                const latestLessons = await lessonApi.getLessonsByTimetable(timetableId);
+                setLessons(latestLessons);
+                const latestPlacedLesson = latestLessons.find((lesson) =>
+                    lesson.assignmentId === manualAssignmentId &&
+                    lesson.dayOfWeek === data.dayOfWeek &&
+                    formatTime(lesson.startTime) === formatTime(data.startTime),
+                );
+
+                if (!latestPlacedLesson) {
+                    showErrorToast("Lesson was saved but was not found in refreshed schedule");
+                    return;
+                }
+            }
+
             toast.success("Lesson placed manually");
         } catch (err) {
             const message = getApiErrorMessage(err, "Manual placement failed");
@@ -1208,6 +1231,36 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
     const handleLessonClick = (lesson: LessonResponse) => {
         setSelectedLesson(lesson);
         setLessonDetailsOpen(true);
+    };
+
+    const handleMoveLesson = async (
+        lesson: LessonResponse,
+        target: { group: StudyGroupResponse; slot: TimeSlot; day: DayOfWeek },
+    ) => {
+        if (!lesson.groupNames.includes(target.group.name)) {
+            toast.error("Lessons can only be moved within the same group row");
+            return;
+        }
+
+        try {
+            setError("");
+            const movedLesson = await lessonApi.updateLesson(timetableId, lesson.id, {
+                assignmentId: lesson.assignmentId,
+                dayOfWeek: target.day,
+                startTime: formatTime(target.slot.startTime),
+                durationHours: lesson.durationHours,
+                roomId: findLessonRoomId(lesson, rooms),
+            });
+
+            setLessons((currentLessons) =>
+                currentLessons.map((item) => (item.id === movedLesson.id ? movedLesson : item)),
+            );
+            toast.success("Lesson moved");
+        } catch (err) {
+            const message = getApiErrorMessage(err, "Failed to move lesson");
+            setError(message);
+            showErrorToast(message);
+        }
     };
 
     const handleSaveLesson = async (data: LessonRequest) => {
@@ -1468,6 +1521,7 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                             onZoomChange={handleGridZoomChange}
                             onCellClick={handleCellClick}
                             onLessonClick={handleLessonClick}
+                            onLessonMove={handleMoveLesson}
                             onLessonEdit={(lesson) => {
                                 setEditingLesson(lesson);
                                 setLessonInitialValues({ roomId: findLessonRoomId(lesson, rooms) });
@@ -1530,7 +1584,15 @@ export default function TimetableDetailPage({ params }: { params: Promise<{ id: 
                 />
             )}
 
-            {manualAssignmentId && <ManualPlacementModal assignmentId={manualAssignmentId} rooms={rooms} onPlace={handleManualPlace} onClose={closeManualModal} />}
+            {manualAssignmentId && (
+                <ManualPlacementModal
+                    timetableId={timetableId}
+                    assignmentId={manualAssignmentId}
+                    rooms={rooms}
+                    onPlace={handleManualPlace}
+                    onClose={closeManualModal}
+                />
+            )}
 
             <LessonDetailsModal
                 open={lessonDetailsOpen}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, type ReactNode, type WheelEvent } from "react";
+import { useLayoutEffect, useRef, useState, type DragEvent, type ReactNode, type WheelEvent } from "react";
 import { CalendarDays, CalendarPlus, DoorOpen, Pencil, Plus, Trash2, UserRound, Utensils } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import type {
 } from "@/lib/types";
 import { DAYS_OF_WEEK } from "@/lib/constants";
 
-type GridDensity = "compact" | "medium" | "large";
+export type GridDensity = "compact" | "medium" | "large";
 
 interface TimetableGridProps {
     lessons: LessonResponse[];
@@ -28,9 +28,25 @@ interface TimetableGridProps {
     onLessonClick?: (lesson: LessonResponse) => void;
     onLessonEdit?: (lesson: LessonResponse) => void;
     onLessonDelete?: (lesson: LessonResponse) => void;
+    onLessonMove?: (lesson: LessonResponse, target: { group: StudyGroupResponse; slot: TimeSlot; day: DayOfWeek }) => void | Promise<void>;
     onLunchEdit?: (lunch: LunchResponse) => void;
     onLunchDelete?: (lunch: LunchResponse) => void;
     onTimeSlotDoubleClick?: (slot: TimeSlot) => void;
+    readOnly?: boolean;
+    rowHeaderLabel?: string;
+    showEmptyCellPlaceholder?: boolean;
+}
+
+interface DraggedLesson {
+    lesson: LessonResponse;
+    groupName: string;
+}
+
+interface DropTarget {
+    day: DayOfWeek;
+    groupId: number;
+    slotId: number;
+    state: "valid" | "invalid" | "disabled";
 }
 
 const VISIBLE_DAYS = DAYS_OF_WEEK.filter((day) => day !== "SUNDAY");
@@ -121,6 +137,12 @@ function getLessonSpan(lesson: LessonResponse, remainingSlots: number) {
     return Math.min(Math.max(1, Math.round(duration)), remainingSlots);
 }
 
+function getLessonDuration(lesson: LessonResponse) {
+    const duration = Number(lesson.durationHours);
+    if (!Number.isFinite(duration) || duration < 1) return 1;
+    return Math.max(1, Math.round(duration));
+}
+
 function sortTimeSlots(timeSlots: TimeSlot[]) {
     return [...timeSlots].sort((a, b) => {
         const orderDiff = (a.order ?? 0) - (b.order ?? 0);
@@ -143,6 +165,18 @@ function getLunchForCell(lunchBlocks: LunchResponse[], groupId: number, slot: Ti
         formatTime(lunch.startTime) === formatTime(slot.startTime) &&
         (!day || lunch.dayOfWeek === day),
     );
+}
+
+function getLunchSpan(lunch: LunchResponse, slotIndex: number, slots: TimeSlot[]) {
+    const lunchEnd = formatTime(lunch.endTime);
+    let span = 1;
+
+    for (let index = slotIndex + 1; index < slots.length; index += 1) {
+        if (formatTime(slots[index - 1].endTime) >= lunchEnd) break;
+        span += 1;
+    }
+
+    return span;
 }
 
 function EmptyGridState({ title, description }: { title: string; description: string }) {
@@ -183,19 +217,53 @@ function LessonCard({
     onClick,
     onEdit,
     onDelete,
+    onDragStart,
+    onDragEnd,
+    readOnly = false,
 }: {
     lesson: LessonResponse;
     config: ReturnType<typeof getScaledConfig>;
     onClick?: () => void;
     onEdit?: () => void;
     onDelete?: () => void;
+    onDragStart?: (event: DragEvent<HTMLDivElement>) => void;
+    onDragEnd?: () => void;
+    readOnly?: boolean;
 }) {
     const color = getLessonColor(lesson);
+    const hasActions = Boolean(onEdit || onDelete);
 
     return (
         <div
             role="button"
             tabIndex={0}
+            draggable={!readOnly}
+            onDragStart={(event) => {
+                if (readOnly) return;
+                const ghost = document.createElement("div");
+                const rect = event.currentTarget.getBoundingClientRect();
+                ghost.textContent = lesson.subjectName;
+                ghost.style.position = "fixed";
+                ghost.style.top = "-1000px";
+                ghost.style.left = "-1000px";
+                ghost.style.width = `${rect.width}px`;
+                ghost.style.height = `${rect.height}px`;
+                ghost.style.boxSizing = "border-box";
+                ghost.style.padding = "12px";
+                ghost.style.border = `1px solid ${color.border}`;
+                ghost.style.borderRadius = "16px";
+                ghost.style.background = color.bg;
+                ghost.style.color = color.text;
+                ghost.style.opacity = "0.62";
+                ghost.style.font = "600 14px system-ui, sans-serif";
+                ghost.style.boxShadow = "0 10px 20px rgb(15 23 42 / 0.12)";
+                ghost.style.overflow = "hidden";
+                document.body.append(ghost);
+                event.dataTransfer.setDragImage(ghost, 0, 0);
+                window.setTimeout(() => ghost.remove(), 0);
+                onDragStart?.(event);
+            }}
+            onDragEnd={onDragEnd}
             onClick={onClick}
             onDoubleClick={(event) => {
                 event.stopPropagation();
@@ -207,7 +275,9 @@ function LessonCard({
             title={`${lesson.subjectName}\n${lesson.teacherName}\n${lesson.roomName || "No room"}`}
             className={[
                 "group relative h-full min-h-full w-full rounded-2xl border text-left shadow-sm outline-none transition",
-                "cursor-pointer hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring",
+                readOnly
+                    ? "cursor-default hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring"
+                    : "cursor-grab hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-ring",
                 config.cardPadding,
             ].join(" ")}
             style={{ backgroundColor: color.bg, borderColor: color.border, color: color.text }}
@@ -222,6 +292,7 @@ function LessonCard({
                 <span className="truncate">{lesson.roomName || "No room"}</span>
             </div>
 
+            {hasActions && (
             <div className="absolute right-2 top-2 hidden gap-1 rounded-xl bg-white/75 p-1 shadow-sm backdrop-blur group-hover:flex group-focus-within:flex">
                 <Button
                     type="button"
@@ -249,6 +320,7 @@ function LessonCard({
                     <Trash2 className="h-3.5 w-3.5" />
                 </Button>
             </div>
+            )}
         </div>
     );
 }
@@ -262,10 +334,13 @@ function LunchCell({
     onEdit?: () => void;
     onDelete?: () => void;
 }) {
+    const hasActions = Boolean(onEdit || onDelete);
+
     return (
         <div className="group relative flex h-full min-h-full w-full items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 p-3 text-center text-amber-900">
             <div className="text-sm font-semibold">Lunch</div>
 
+            {hasActions && (
             <div className="absolute right-2 top-2 hidden gap-1 rounded-xl bg-white/80 p-1 shadow-sm backdrop-blur group-hover:flex group-focus-within:flex">
                 <Button
                     type="button"
@@ -294,6 +369,7 @@ function LunchCell({
                     <Trash2 className="h-3.5 w-3.5" />
                 </Button>
             </div>
+            )}
         </div>
     );
 }
@@ -302,21 +378,29 @@ function EmptyCell({
     config,
     onCreateLesson,
     onCreateLunch,
+    showPlaceholder = true,
 }: {
     config: ReturnType<typeof getScaledConfig>;
     onCreateLesson?: () => void;
     onCreateLunch?: () => void;
+    showPlaceholder?: boolean;
 }) {
+    const hasActions = Boolean(onCreateLesson || onCreateLunch);
+
     return (
         <div
             className={[
                 "group relative flex h-full min-h-full w-full items-center justify-center rounded-2xl border border-dashed border-border bg-card/60 text-muted-foreground outline-none transition",
-                "hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus-within:ring-2 focus-within:ring-ring",
+                hasActions ? "hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus-within:ring-2 focus-within:ring-ring" : "",
                 config.cardPadding,
             ].join(" ")}
         >
-            <Plus className="h-5 w-5 opacity-40 transition group-hover:scale-110 group-hover:opacity-10 group-focus-within:opacity-10" />
+            {showPlaceholder && (
+                <Plus className={`h-5 w-5 opacity-40 transition ${hasActions ? "group-hover:scale-110 group-hover:opacity-10 group-focus-within:opacity-10" : ""}`} />
+            )}
+            {hasActions && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+                {onCreateLesson && (
                 <Button
                     type="button"
                     size="icon-sm"
@@ -327,6 +411,8 @@ function EmptyCell({
                 >
                     <CalendarPlus className="h-4 w-4" />
                 </Button>
+                )}
+                {onCreateLunch && (
                 <Button
                     type="button"
                     size="icon-sm"
@@ -337,7 +423,9 @@ function EmptyCell({
                 >
                     <Utensils className="h-4 w-4" />
                 </Button>
+                )}
             </div>
+            )}
         </div>
     );
 }
@@ -448,14 +536,20 @@ export default function TimetableGrid({
     onLessonClick,
     onLessonEdit,
     onLessonDelete,
+    onLessonMove,
     onLunchEdit,
     onLunchDelete,
     onTimeSlotDoubleClick,
+    readOnly = false,
+    rowHeaderLabel = "Group",
+    showEmptyCellPlaceholder = true,
 }: TimetableGridProps) {
     const normalizedDensity = normalizeDensity(density);
     const sortedSlots = sortTimeSlots(timeSlots);
     const config = getScaledConfig(normalizedDensity, zoom);
     const normalizedZoom = normalizeZoom(zoom);
+    const [draggedLesson, setDraggedLesson] = useState<DraggedLesson | null>(null);
+    const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
 
     if (groups.length === 0) {
         return <EmptyGridState title="No groups selected" description="Change filters to show timetable grid." />;
@@ -465,6 +559,134 @@ export default function TimetableGrid({
         return <EmptyGridState title="No time slots" description="Create time slots before viewing the grid." />;
     }
 
+    const canFitLessonAt = (lesson: LessonResponse, group: StudyGroupResponse, slot: TimeSlot, day?: DayOfWeek) => {
+        if (!day || !lesson.groupNames.includes(group.name)) return false;
+
+        const startIndex = sortedSlots.findIndex((item) => item.id === slot.id);
+        if (startIndex === -1) return false;
+
+        const duration = getLessonDuration(lesson);
+        if (startIndex + duration > sortedSlots.length) return false;
+
+        const occupiedSlots = new Set<number>();
+
+        lessons.forEach((item) => {
+            if (item.id === lesson.id || item.dayOfWeek !== day || !item.groupNames.includes(group.name)) return;
+
+            const lessonStartIndex = sortedSlots.findIndex((slotItem) => formatTime(slotItem.startTime) === formatTime(item.startTime));
+            if (lessonStartIndex === -1) return;
+
+            const lessonSpan = getLessonSpan(item, sortedSlots.length - lessonStartIndex);
+            for (let index = lessonStartIndex; index < lessonStartIndex + lessonSpan; index += 1) {
+                occupiedSlots.add(index);
+            }
+        });
+
+        lunchBlocks.forEach((lunch) => {
+            if (lunch.dayOfWeek !== day || lunch.groupId !== group.id) return;
+
+            const lunchStartIndex = sortedSlots.findIndex((slotItem) => formatTime(slotItem.startTime) === formatTime(lunch.startTime));
+            if (lunchStartIndex === -1) return;
+
+            const lunchSpan = getLunchSpan(lunch, lunchStartIndex, sortedSlots);
+            for (let index = lunchStartIndex; index < lunchStartIndex + lunchSpan; index += 1) {
+                occupiedSlots.add(index);
+            }
+        });
+
+        for (let index = startIndex; index < startIndex + duration; index += 1) {
+            if (occupiedSlots.has(index)) return false;
+        }
+
+        return true;
+    };
+
+    const getDropTargetState = (group: StudyGroupResponse, slot: TimeSlot, day?: DayOfWeek): DropTarget["state"] | null => {
+        if (!draggedLesson || !day) return null;
+        if (draggedLesson.groupName !== group.name) return "disabled";
+        return canFitLessonAt(draggedLesson.lesson, group, slot, day) ? "valid" : "invalid";
+    };
+
+    const getDropState = (group: StudyGroupResponse, slot: TimeSlot, day?: DayOfWeek) => {
+        if (!draggedLesson || !day) return null;
+        const state = getDropTargetState(group, slot, day);
+        const active = dropTarget?.day === day && dropTarget.groupId === group.id && dropTarget.slotId === slot.id;
+        return { state, active };
+    };
+
+    const handleCellDragEnter = (group: StudyGroupResponse, slot: TimeSlot, day?: DayOfWeek) => {
+        if (!draggedLesson || !day) return;
+        setDropTarget({
+            day,
+            groupId: group.id,
+            slotId: slot.id,
+            state: getDropTargetState(group, slot, day) ?? "disabled",
+        });
+    };
+
+    const handleCellDragOver = (event: DragEvent<HTMLTableCellElement>, group: StudyGroupResponse, slot: TimeSlot, day?: DayOfWeek) => {
+        if (!draggedLesson || !day) return;
+        const state = getDropTargetState(group, slot, day);
+
+        setDropTarget({
+            day,
+            groupId: group.id,
+            slotId: slot.id,
+            state: state ?? "disabled",
+        });
+
+        if (state !== "valid") {
+            event.dataTransfer.dropEffect = "none";
+            return;
+        }
+
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+    };
+
+    const handleCellDrop = async (event: DragEvent<HTMLTableCellElement>, group: StudyGroupResponse, slot: TimeSlot, day?: DayOfWeek) => {
+        event.preventDefault();
+
+        if (!draggedLesson || !day || !canFitLessonAt(draggedLesson.lesson, group, slot, day)) {
+            setDropTarget(null);
+            return;
+        }
+
+        const lesson = draggedLesson.lesson;
+        setDraggedLesson(null);
+        setDropTarget(null);
+
+        if (lesson.dayOfWeek === day && formatTime(lesson.startTime) === formatTime(slot.startTime)) {
+            return;
+        }
+
+        await onLessonMove?.(lesson, { group, slot, day });
+    };
+
+    const handleCellDragLeave = (event: DragEvent<HTMLTableCellElement>) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setDropTarget(null);
+        }
+    };
+
+    const getCellClassName = (dropState: ReturnType<typeof getDropState>) => {
+        const classes = ["border-b border-r border-border bg-background/40 align-top transition-colors last:border-r-0"];
+
+        if (dropState?.active && dropState.state === "valid") {
+            classes.push("bg-emerald-50 ring-2 ring-inset ring-emerald-400");
+        } else if (dropState?.active && dropState.state === "invalid") {
+            classes.push("bg-red-50 ring-2 ring-inset ring-red-300");
+        } else if (draggedLesson && dropState?.state === "valid") {
+            classes.push("bg-emerald-50/40");
+        } else if (draggedLesson && dropState?.state === "invalid") {
+            classes.push("bg-red-50/30");
+        } else if (draggedLesson && dropState?.state === "disabled") {
+            classes.push("opacity-35 grayscale");
+        }
+
+        return classes.join(" ");
+    };
+
     const renderCells = (group: StudyGroupResponse, day?: DayOfWeek) => {
         const cells: ReactNode[] = [];
         let slotIndex = 0;
@@ -473,17 +695,41 @@ export default function TimetableGrid({
             const slot = sortedSlots[slotIndex];
             const lesson = getLessonForCell(lessons, group.name, slot, day);
             const lunch = getLunchForCell(lunchBlocks, group.id, slot, day);
+            const dropState = getDropState(group, slot, day);
+            const cellDragProps = readOnly ? {} : {
+                onDragEnter: () => handleCellDragEnter(group, slot, day),
+                onDragOver: (event: DragEvent<HTMLTableCellElement>) => handleCellDragOver(event, group, slot, day),
+                onDragLeave: handleCellDragLeave,
+                onDrop: (event: DragEvent<HTMLTableCellElement>) => handleCellDrop(event, group, slot, day),
+            };
 
             if (lesson) {
                 const span = getLessonSpan(lesson, sortedSlots.length - slotIndex);
                 cells.push(
-                    <td key={`${day || "single"}-${group.id}-${slot.id}`} colSpan={span} style={{ minWidth: config.slotWidth * span, height: config.cellHeight, padding: config.cellPadding }} className="border-b border-r border-border bg-background/40 align-top last:border-r-0">
+                    <td
+                        key={`${day || "single"}-${group.id}-${slot.id}`}
+                        colSpan={span}
+                        style={{ minWidth: config.slotWidth * span, height: config.cellHeight, padding: config.cellPadding }}
+                        className={getCellClassName(dropState)}
+                        {...cellDragProps}
+                    >
                         <LessonCard
                             lesson={lesson}
                             config={config}
                             onClick={() => onLessonClick?.(lesson)}
                             onEdit={() => onLessonEdit?.(lesson)}
                             onDelete={() => onLessonDelete?.(lesson)}
+                            onDragStart={(event) => {
+                                if (readOnly) return;
+                                setDraggedLesson({ lesson, groupName: group.name });
+                                event.dataTransfer.effectAllowed = "move";
+                                event.dataTransfer.setData("text/plain", String(lesson.id));
+                            }}
+                            onDragEnd={() => {
+                                setDraggedLesson(null);
+                                setDropTarget(null);
+                            }}
+                            readOnly={readOnly}
                         />
                     </td>,
                 );
@@ -492,7 +738,12 @@ export default function TimetableGrid({
             }
 
             cells.push(
-                <td key={`${day || "single"}-${group.id}-${slot.id}`} style={{ minWidth: config.slotWidth, height: config.cellHeight, padding: config.cellPadding }} className="border-b border-r border-border bg-background/40 align-top last:border-r-0">
+                <td
+                    key={`${day || "single"}-${group.id}-${slot.id}`}
+                    style={{ minWidth: config.slotWidth, height: config.cellHeight, padding: config.cellPadding }}
+                    className={getCellClassName(dropState)}
+                    {...cellDragProps}
+                >
                     {lunch ? (
                         <LunchCell
                             lunch={lunch}
@@ -502,8 +753,9 @@ export default function TimetableGrid({
                     ) : (
                         <EmptyCell
                             config={config}
-                            onCreateLesson={() => onCellClick?.(group, slot, day, "lesson")}
-                            onCreateLunch={() => onCellClick?.(group, slot, day, "lunch")}
+                            onCreateLesson={onCellClick ? () => onCellClick(group, slot, day, "lesson") : undefined}
+                            onCreateLunch={onCellClick ? () => onCellClick(group, slot, day, "lunch") : undefined}
+                            showPlaceholder={showEmptyCellPlaceholder}
                         />
                     )}
                 </td>,
@@ -522,7 +774,7 @@ export default function TimetableGrid({
                 <thead>
                 <tr>
                     <th style={{ left: 0, width: config.dayColumnWidth, minWidth: config.dayColumnWidth, padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`, fontSize: config.headerFontSize }} className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 text-left font-semibold text-white">Day</th>
-                    <th style={{ left: config.dayColumnWidth, width: config.groupColumnWidth, minWidth: config.groupColumnWidth, padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`, fontSize: config.headerFontSize }} className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 text-left font-semibold text-white">Group</th>
+                    <th style={{ left: config.dayColumnWidth, width: config.groupColumnWidth, minWidth: config.groupColumnWidth, padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`, fontSize: config.headerFontSize }} className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 text-left font-semibold text-white">{rowHeaderLabel}</th>
                     {sortedSlots.map((slot) => <TimeSlotHeader key={slot.id} slot={slot} config={config} onDoubleClick={() => onTimeSlotDoubleClick?.(slot)} />)}
                 </tr>
                 </thead>
@@ -549,7 +801,7 @@ export default function TimetableGrid({
         <GridShell minWidth={minWidth} zoom={normalizedZoom} onZoomChange={onZoomChange}>
             <thead>
             <tr>
-                <th style={{ left: 0, width: config.groupColumnWidth, minWidth: config.groupColumnWidth, padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`, fontSize: config.headerFontSize }} className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 text-left font-semibold text-white">Group</th>
+                <th style={{ left: 0, width: config.groupColumnWidth, minWidth: config.groupColumnWidth, padding: `${config.headerPaddingY}px ${config.headerPaddingX}px`, fontSize: config.headerFontSize }} className="sticky top-0 z-50 border-b border-r border-border bg-slate-950 text-left font-semibold text-white">{rowHeaderLabel}</th>
                 {sortedSlots.map((slot) => <TimeSlotHeader key={slot.id} slot={slot} config={config} onDoubleClick={() => onTimeSlotDoubleClick?.(slot)} />)}
             </tr>
             </thead>

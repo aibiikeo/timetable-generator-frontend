@@ -18,7 +18,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { getAssignmentLessonStats } from "@/lib";
 import type { AssignmentResponse, GenerationResponse } from "@/lib/types";
 
 interface GenerationResultModalProps {
@@ -69,23 +68,12 @@ export default function GenerationResultModal({
                                               }: GenerationResultModalProps) {
     const failedItems = getFailedItems(result);
 
-    const placedLessonsCount =
-        (result as unknown as { placedLessonsCount?: number }).placedLessonsCount ?? 0;
-
-    const fallbackUnscheduledLessons =
-        (result as unknown as { failedVerticesCount?: number }).failedVerticesCount ?? 0;
-
-    const assignmentSummary = getAssignmentLessonStats(assignments);
     const scheduledLessons =
-        assignmentSummary.requiredLessons > 0
-            ? assignmentSummary.placedLessons
-            : placedLessonsCount;
+        result.placedLessonBlocksCount ?? result.placedLessonsCount ?? 0;
     const unscheduledLessons =
-        assignmentSummary.requiredLessons > 0
-            ? assignmentSummary.unplacedLessons
-            : fallbackUnscheduledLessons;
+        result.failedLessonBlocksCount ?? result.failedVerticesCount ?? 0;
     const totalLessons =
-        assignmentSummary.requiredLessons || scheduledLessons + unscheduledLessons;
+        result.totalLessonBlocks ?? result.totalVertices ?? scheduledLessons + unscheduledLessons;
     const completionRate =
         totalLessons > 0
             ? Math.round((scheduledLessons / totalLessons) * 100)

@@ -234,6 +234,9 @@ export interface AssignmentResponse {
     hoursSplitting: string;
     generatedLessonsCount: number;
     requiredLessonsCount: number;
+    generatedLessonBlocksCount?: number;
+    requiredLessonBlocksCount?: number;
+    requiredLessonSlotsCount?: number;
 
     placementStatus: string;
     failureReason: string | null;
@@ -272,6 +275,10 @@ export interface TimetableResponse {
     assignments: AssignmentResponse[];
     totalLessons: number;
     totalRequiredLessons: number;
+    totalLessonBlocks?: number;
+    totalRequiredLessonBlocks?: number;
+    totalLessonSlots?: number;
+    totalRequiredLessonSlots?: number;
 }
 
 export interface LessonRequest {
@@ -282,6 +289,29 @@ export interface LessonRequest {
     roomId?: number;
 }
 
+export interface MoveLessonRequest {
+    dayOfWeek: DayOfWeek;
+    startTime: string;
+}
+
+export interface MoveLessonValidationResponse {
+    valid: boolean;
+    conflicts: string[];
+    targetEndTime: string | null;
+}
+
+export interface ManualPlacementSuggestionResponse {
+    dayOfWeek: DayOfWeek;
+    startTime: string;
+    endTime: string;
+    durationHours: number;
+    roomId: number;
+    roomName: string;
+    roomType: RoomType;
+    roomCapacity: number;
+    score: number;
+}
+
 export interface LessonResponse {
     id: number;
     timetableId: number;
@@ -289,6 +319,7 @@ export interface LessonResponse {
     subjectName: string;
     teacherName: string;
     groupNames: string[];
+    roomId?: number;
     roomName: string | null;
     dayOfWeek: DayOfWeek;
     startTime: string;
@@ -372,6 +403,12 @@ export interface GenerationResponse {
     totalVertices: number;
     placedLessonsCount: number;
     failedVerticesCount: number;
+    totalLessonBlocks?: number;
+    placedLessonBlocksCount?: number;
+    failedLessonBlocksCount?: number;
+    totalLessonSlots?: number;
+    placedLessonSlotsCount?: number;
+    failedLessonSlotsCount?: number;
     status: TimetableStatus;
     failedAssignments: UnplacedLesson[];
 }

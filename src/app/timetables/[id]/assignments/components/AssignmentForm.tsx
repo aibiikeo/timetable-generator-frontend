@@ -598,7 +598,7 @@ export default function AssignmentForm({
     };
 
     return (
-        <form ref={formRef} onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <form ref={formRef} onSubmit={handleSubmit} className="custom-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden pr-2">
             {isEditing ? (
                 <>
                     <div>

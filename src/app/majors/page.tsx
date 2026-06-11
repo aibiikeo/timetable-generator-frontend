@@ -32,7 +32,7 @@ import {
     departmentApi,
     formatAssignment,
     getApiErrorMessage,
-    getDeleteRelatedRecordsMessage,
+    getDeleteErrorMessage,
     getDeleteSuccessMessage,
     groupApi,
     majorApi,
@@ -344,13 +344,16 @@ export default function MajorsPage() {
                     selectedMajors.map((id) => majorApi.deleteMajor(id, mode)),
                 );
 
-                const failed = results.filter((result) => result.status === "rejected");
+                const failed = results.filter(
+                    (result): result is PromiseRejectedResult =>
+                        result.status === "rejected",
+                );
 
                 if (failed.length > 0) {
                     const failedIds = selectedMajors.filter(
                         (_id, index) => results[index].status === "rejected",
                     );
-                    toast.error(getDeleteRelatedRecordsMessage("major", failedIds));
+                    toast.error(getDeleteErrorMessage(failed[0]?.reason, "major", failedIds));
                 }
 
                 setSelectedMajors([]);
@@ -363,9 +366,10 @@ export default function MajorsPage() {
             }
 
             await loadData();
-        } catch {
+        } catch (err) {
             toast.error(
-                getDeleteRelatedRecordsMessage(
+                getDeleteErrorMessage(
+                    err,
                     "major",
                     target === "selected" ? selectedMajors : target.id,
                 ),

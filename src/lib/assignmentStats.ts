@@ -26,8 +26,13 @@ export function normalizePlacementStatus(status?: string | null): NormalizedPlac
 }
 
 export function getAssignmentUnplacedLessons(assignment: AssignmentResponse) {
+    const requiredBlocks =
+        assignment.requiredLessonBlocksCount ?? assignment.requiredLessonsCount ?? 0;
+    const placedBlocks =
+        assignment.generatedLessonBlocksCount ?? assignment.generatedLessonsCount ?? 0;
+
     return Math.max(
-        (assignment.requiredLessonsCount || 0) - (assignment.generatedLessonsCount || 0),
+        requiredBlocks - placedBlocks,
         0,
     );
 }
@@ -36,10 +41,14 @@ export function getAssignmentLessonStats(assignments: AssignmentResponse[]) {
     return assignments.reduce(
         (acc, assignment) => {
             const status = normalizePlacementStatus(assignment.placementStatus);
+            const requiredBlocks =
+                assignment.requiredLessonBlocksCount ?? assignment.requiredLessonsCount ?? 0;
+            const placedBlocks =
+                assignment.generatedLessonBlocksCount ?? assignment.generatedLessonsCount ?? 0;
 
             acc.total += 1;
-            acc.requiredLessons += assignment.requiredLessonsCount || 0;
-            acc.placedLessons += assignment.generatedLessonsCount || 0;
+            acc.requiredLessons += requiredBlocks;
+            acc.placedLessons += placedBlocks;
             acc.unplacedLessons += getAssignmentUnplacedLessons(assignment);
 
             if (status === "SCHEDULED") {
